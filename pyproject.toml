@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "score7"
+version = "0.1.0"
+description = "Harmonic and sonic analysis of audio files — key, chord grid, structure, spectral, melody. CLI + MCP server."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Marc Verchiani", email = "flux7art@gmail.com" },
+]
+dependencies = [
+    "fastmcp>=2.0",
+    "librosa>=0.10",
+    "numpy>=1.23",
+    "scipy>=1.10",
+    "soundfile>=0.12",
+    "pyloudnorm>=0.1",
+    "pretty_midi>=0.2",
+]
+
+# Étapes lourdes (séparation de stems + transcription) — opt-in :
+#   pip install score7[melody]
+[project.optional-dependencies]
+melody = [
+    "demucs>=4.0",
+    "piano_transcription_inference>=0.0.6",
+]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+score7 = "score7_mcp.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+
+[tool.setuptools.packages.find]
+include = ["score7_mcp*"]
