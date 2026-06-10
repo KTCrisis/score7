@@ -29,6 +29,12 @@ melody = [
     "demucs>=4.0",
     "piano_transcription_inference>=0.0.6",
 ]
+# Beat/downbeat tracking RNN+DBN (BPM + métrique fiables).
+# La version PyPI (0.16.1) est cassée sur Python 3.12 — installer depuis git :
+#   pip install "madmom @ git+https://github.com/CPJKU/madmom.git"
+rhythm = [
+    "madmom>=0.17.dev0",
+]
 test = ["pytest>=8.0"]
 
 [project.scripts]
