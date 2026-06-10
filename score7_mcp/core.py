@@ -42,11 +42,144 @@ def load_audio(path: str, sr: int = 22050):
     return y_mono, sr, y_stereo, sr_native
 
 
-# --------------------------------------------------------------------------- tempo
+# --------------------------------------------------------------------------- tempo & métrique
+_METER_NAMES = {2: "2/4", 3: "3/4", 4: "4/4", 5: "5/4", 6: "6/8", 7: "7/8"}
+
+
+def _tempogram_strengths(oenv, sr, bpms, hop_length=512):
+    """Force du tempogramme global (moyenné sur la durée) aux BPM demandés."""
+    tg = librosa.feature.tempogram(onset_envelope=oenv, sr=sr, hop_length=hop_length)
+    glob = tg.mean(axis=1)
+    freqs = librosa.tempo_frequencies(len(glob), sr=sr, hop_length=hop_length)
+    return [float(glob[int(np.argmin(np.abs(freqs - b)))]) for b in bpms]
+
+
+def _octave_candidates(oenv, sr, bpm):
+    """Candidats d'octave (T/2, T, 2T) avec leur part de force tempogramme.
+    L'autocorrélation d'onsets ne distingue pas un tempo de son double/moitié —
+    on expose l'ambiguïté au lieu de la masquer."""
+    cands = [bpm / 2, bpm, bpm * 2]
+    strengths = _tempogram_strengths(oenv, sr, cands)
+    total = sum(strengths) + 1e-9
+    out = [{"bpm": round(b, 1), "strength": round(s / total, 3)}
+           for b, s in zip(cands, strengths)]
+    return out, out[1]["strength"]
+
+
 def estimate_tempo(y, sr):
-    tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
+    """BPM : beat tracking librosa pour la grille, mais le BPM retenu vient de la
+    médiane des intervalles inter-beats — plus stable que le scalaire de beat_track,
+    qui hérite du prior à 120 BPM."""
+    oenv = librosa.onset.onset_strength(y=y, sr=sr)
+    tempo, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr)
     beat_times = librosa.frames_to_time(beats, sr=sr)
-    return round(float(np.atleast_1d(tempo)[0]), 1), beats, beat_times
+    if len(beat_times) > 2:
+        bpm = 60.0 / float(np.median(np.diff(beat_times)))
+    else:
+        bpm = float(np.atleast_1d(tempo)[0])
+    candidates, confidence = _octave_candidates(oenv, sr, bpm)
+    info = {"bpm": round(bpm, 1), "bpm_candidates": candidates,
+            "bpm_confidence": confidence, "source": "librosa"}
+    return info, beats, beat_times
+
+
+def _subdivision(oenv, sr, bpm):
+    """Subdivision du beat : binaire (croches) ou ternaire (mesures composées).
+    Force tempogramme à 2x vs 3x le tempo ; seuil 1.1 pour biaiser vers binaire,
+    et le ternaire n'est retenu que si la subdivision a une énergie réelle
+    (sinon, sans subdivision du tout, on comparerait du bruit)."""
+    s1, s2, s3 = _tempogram_strengths(oenv, sr, [bpm, 2 * bpm, 3 * bpm])
+    return "ternary" if (s3 > s2 * 1.1 and s3 > 0.2 * s1) else "binary"
+
+
+def _meter_name(beats_per_bar, subdivision):
+    """6/8 et 12/8 = pulsation à 2 ou 4 avec subdivision ternaire."""
+    if subdivision == "ternary" and beats_per_bar in (2, 4):
+        return f"{beats_per_bar * 3}/8"
+    return _METER_NAMES.get(beats_per_bar, f"{beats_per_bar}/4")
+
+
+def estimate_meter(y, sr, beats_frames, beat_times, max_bar=7):
+    """Métrique par motif d'accents : l'enveloppe d'onsets échantillonnée sur chaque
+    beat est repliée modulo chaque hypothèse de mesure (2..7 beats) ; la bonne
+    hypothèse maximise le contraste downbeat vs reste. Une hypothèse bien expliquée
+    par son diviseur retombe sur le diviseur (évite 6 quand c'est 3)."""
+    null = {"meter": None, "beats_per_bar": None, "subdivision": None,
+            "meter_confidence": 0.0, "source": "librosa"}
+    if len(beats_frames) < 2 * max_bar:
+        return null
+    oenv = librosa.onset.onset_strength(y=y, sr=sr)
+    accents = np.array([float(oenv[min(int(f), len(oenv) - 1)]) for f in beats_frames])
+    accents = accents - accents.mean()
+    spread = accents.std() + 1e-9
+
+    scores = {}
+    for bar in range(2, max_bar + 1):
+        n = (len(accents) // bar) * bar
+        if n < 2 * bar:
+            continue
+        profile = accents[:n].reshape(-1, bar).mean(axis=0)
+        scores[bar] = float((profile.max() - profile.mean()) / spread)
+    if not scores:
+        return null
+    best = max(scores, key=scores.get)
+    for d in sorted(k for k in scores if k < best and best % k == 0):
+        if scores[d] >= 0.9 * scores[best]:
+            best = d
+            break
+    others = [v for k, v in scores.items() if k != best]
+    conf = 0.0
+    if others and scores[best] > 0:
+        conf = float(np.clip((scores[best] - max(others)) / scores[best], 0.0, 1.0))
+
+    bpm = 60.0 / float(np.median(np.diff(beat_times)))
+    sub = _subdivision(oenv, sr, bpm)
+    return {"meter": _meter_name(best, sub), "beats_per_bar": int(best),
+            "subdivision": sub, "meter_confidence": round(conf, 3), "source": "librosa"}
+
+
+def try_madmom_rhythm(path, beats_per_bar=(2, 3, 4, 5, 6, 7)):
+    """Beat + downbeat tracking madmom (RNN + DBN), extra [rhythm]. Nettement plus
+    fiable que librosa, mais les modèles sont entraînés surtout sur 3/4 et 4/4 —
+    les métriques impaires restent indicatives. Renvoie None si madmom est absent
+    ou échoue ; l'appelant retombe sur librosa."""
+    try:
+        from madmom.features.downbeats import (DBNDownBeatTrackingProcessor,
+                                               RNNDownBeatProcessor)
+    except Exception:
+        return None
+    try:
+        act = RNNDownBeatProcessor()(path)
+        db = DBNDownBeatTrackingProcessor(beats_per_bar=list(beats_per_bar), fps=100)(act)
+    except Exception:
+        return None
+    if db is None or len(db) < 8:
+        return None
+    beat_times = db[:, 0]
+    return {"bpm": round(60.0 / float(np.median(np.diff(beat_times))), 1),
+            "beats_per_bar": int(round(float(np.max(db[:, 1])))),
+            "beat_times": beat_times, "source": "madmom"}
+
+
+def estimate_rhythm(y, sr, path=None):
+    """Tempo + métrique réconciliés : madmom si installé (extra [rhythm]), sinon
+    librosa seul. Quand madmom prend la main, sa grille de beats remplace celle de
+    librosa (la synchro chroma des accords en profite aussi)."""
+    tempo, beats, beat_times = estimate_tempo(y, sr)
+    meter = estimate_meter(y, sr, beats, beat_times)
+    mm = try_madmom_rhythm(path) if path else None
+    if mm:
+        oenv = librosa.onset.onset_strength(y=y, sr=sr)
+        candidates, confidence = _octave_candidates(oenv, sr, mm["bpm"])
+        sub = _subdivision(oenv, sr, mm["bpm"])
+        tempo = {"bpm": mm["bpm"], "bpm_candidates": candidates,
+                 "bpm_confidence": confidence, "source": "madmom"}
+        meter = {"meter": _meter_name(mm["beats_per_bar"], sub),
+                 "beats_per_bar": mm["beats_per_bar"], "subdivision": sub,
+                 "meter_confidence": None, "source": "madmom"}
+        beat_times = mm["beat_times"]
+        beats = librosa.time_to_frames(beat_times, sr=sr)
+    return tempo, meter, beats, beat_times
 
 
 # --------------------------------------------------------------------------- tonalité

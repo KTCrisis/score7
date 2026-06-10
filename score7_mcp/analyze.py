@@ -28,14 +28,14 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
     y, sr, y_stereo, sr_native = core.load_audio(path, sr=sr)
-    bpm, beats, beat_times = core.estimate_tempo(y, sr)
+    tempo, meter, beats, beat_times = core.estimate_rhythm(y, sr, path=path)
     chords = core.estimate_chords(y, sr, beats, beat_times)
     chroma_mean = np.mean(librosa.feature.chroma_cqt(y=y, sr=sr), axis=1)
     key = core.estimate_key(chroma_mean, chord_grid=chords)
 
     results = {
         "title": title, "slug": slug, "file": path, "outdir": outdir,
-        "bpm": bpm, "key": key, "chords": chords,
+        "bpm": tempo["bpm"], "tempo": tempo, "meter": meter, "key": key, "chords": chords,
         "structure": core.dynamic_structure(y, sr),
         "spectral": core.spectral_profile(y, sr),
         "stereo": core.stereo_width(y_stereo),

@@ -9,7 +9,18 @@ def render_markdown(r: dict) -> str:
     L = []
     L.append(f"# Analyse audio — {r['title']}\n")
     L.append(f"**Fichier :** `{r['file']}`  ")
-    L.append(f"**Durée :** {dyn['duration_s']} s | **BPM estimé :** {r['bpm']}  ")
+    met, tp = r.get("meter") or {}, r.get("tempo") or {}
+    meter_txt = ""
+    if met.get("meter"):
+        meter_txt = f" | **Métrique :** {met['meter']}"
+        if met.get("meter_confidence") is not None:
+            meter_txt += f" (conf. {met['meter_confidence']:.2f})"
+        if met.get("source") == "madmom":
+            meter_txt += " (madmom)"
+    L.append(f"**Durée :** {dyn['duration_s']} s | **BPM estimé :** {r['bpm']}{meter_txt}  ")
+    if tp.get("bpm_confidence") is not None and tp["bpm_confidence"] < 0.5:
+        alts = ", ".join(f"{c['bpm']} ({c['strength']:.0%})" for c in tp["bpm_candidates"])
+        L.append(f"*Tempo ambigu (octave) — candidats : {alts}.*  ")
     L.append("*Estimation statistique (chroma/spectral) — pas une transcription exacte.*\n")
 
     L.append("## Tonalité\n")

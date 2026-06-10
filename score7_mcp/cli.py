@@ -40,8 +40,14 @@ def main(argv=None):
         print(f"✓ JSON  : {outdir / (r['slug'] + '.json')}")
 
     k = r["key"]
-    print(f"\n{r['title']} — {k['root']} {k['mode']} · {r['bpm']} BPM · "
+    met = (r.get("meter") or {}).get("meter")
+    meter_txt = f" · {met}" if met else ""
+    print(f"\n{r['title']} — {k['root']} {k['mode']} · {r['bpm']} BPM{meter_txt} · "
           f"centroïde {r['spectral']['centroid_hz']} Hz · LUFS {r['loudness']['integrated_lufs']}")
+    tp = r.get("tempo") or {}
+    if tp.get("bpm_confidence") is not None and tp["bpm_confidence"] < 0.5:
+        alts = ", ".join(f"{c['bpm']} ({c['strength']:.0%})" for c in tp["bpm_candidates"])
+        print(f"  (tempo ambigu — candidats d'octave : {alts})")
     if k.get("corrected"):
         print(f"  (tonalité corrigée : Krumhansl seul disait {k['krumhansl_only']})")
 

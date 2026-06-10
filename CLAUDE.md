@@ -15,6 +15,7 @@ calling this package.
 ```bash
 pip install -e .                    # core (librosa) — analysis + MCP
 pip install -e ".[melody]"          # + Demucs & transcription (GPU, opt-in)
+pip install "madmom @ git+https://github.com/CPJKU/madmom.git"  # [rhythm] — PyPI 0.16.1 broken on py3.12
 score7 "track.flac" --json          # CLI
 python -m score7_mcp                # run MCP server (stdio)
 pytest                              # 5 synthetic-signal tests
@@ -45,6 +46,8 @@ score7_mcp/
 
 | Stage | Technique |
 |-------|-----------|
+| Tempo | madmom RNN+DBN beats if installed, else librosa; BPM = median inter-beat interval; octave candidates (T/2, T, 2T) exposed with tempogram strength |
+| Meter | madmom DBN downbeats (beats_per_bar 2–7) if installed, else accent-pattern folding on beat grid; binary/ternary subdivision names 6/8 and 12/8 |
 | Key | Krumhansl-Schmuckler (chroma CQT) **+ chord-function vote** **+ melody-tonic reconciliation** |
 | Chords | cosine template matching on beat-synced chroma CENS, merged segments |
 | Structure | per-window RMS + layer-onset detection (energy derivative) |
