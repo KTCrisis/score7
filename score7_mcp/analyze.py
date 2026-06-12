@@ -27,7 +27,14 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
     outdir = str(Path(outdir).expanduser()) if outdir else str(Path.home() / "Renoise" / "analyses")
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
-    y, sr, y_stereo, sr_native = core.load_audio(path, sr=sr)
+    try:
+        y, sr, y_stereo, sr_native = core.load_audio(path, sr=sr)
+    except Exception as e:
+        # fichier corrompu / format non audio : erreur propre plutôt qu'une
+        # traceback librosa/audioread que ni le CLI ni le MCP ne savent présenter
+        raise ValueError(f"Lecture audio impossible ({path}) : {e or type(e).__name__}") from e
+    if y.size == 0:
+        raise ValueError(f"Fichier audio vide : {path}")
     tempo, meter, beats, beat_times = core.estimate_rhythm(y, sr, path=path)
     chords = core.estimate_chords(y, sr, beats, beat_times)
     chroma_mean = np.mean(librosa.feature.chroma_cqt(y=y, sr=sr), axis=1)

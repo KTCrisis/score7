@@ -27,8 +27,11 @@ def main(argv=None):
     if not Path(args.file).expanduser().exists():
         sys.exit(f"Fichier introuvable : {args.file}")
 
-    r = analyze_file(args.file, sr=args.sr, title=args.title, separate=args.separate,
-                     melody=args.melody, melody_src=args.melody_src, outdir=args.out)
+    try:
+        r = analyze_file(args.file, sr=args.sr, title=args.title, separate=args.separate,
+                         melody=args.melody, melody_src=args.melody_src, outdir=args.out)
+    except ValueError as e:
+        sys.exit(f"score7 : {e}")
 
     outdir = Path(r["outdir"])
     md_path = outdir / f"{r['slug']}.md"
@@ -50,6 +53,17 @@ def main(argv=None):
         print(f"  (tempo ambigu — candidats d'octave : {alts})")
     if k.get("corrected"):
         print(f"  (tonalité corrigée : Krumhansl seul disait {k['krumhansl_only']})")
+
+    # échecs partiels des étages lourds : la fiche existe mais incomplète — le dire
+    failed = False
+    if r.get("stems_error"):
+        print(f"⚠ séparation échouée : {r['stems_error']}", file=sys.stderr)
+        failed = True
+    if r.get("melody_error"):
+        print(f"⚠ mélodie échouée : {r['melody_error']}", file=sys.stderr)
+        failed = True
+    if failed:
+        sys.exit(2)
 
 
 if __name__ == "__main__":

@@ -56,8 +56,17 @@ def analyze_audio(
     dans out_dir (défaut ~/Renoise/analyses) sauf si write_fiche=False."""
     if not Path(file_path).expanduser().exists():
         return {"error": f"Fichier introuvable : {file_path}"}
-    r = analyze_file(file_path, title=title, separate=separate, melody=melody,
-                     melody_src=melody_src, outdir=out_dir)
+    try:
+        r = analyze_file(file_path, title=title, separate=separate, melody=melody,
+                         melody_src=melody_src, outdir=out_dir)
+    except ValueError as e:
+        return {"error": str(e)}
+    # échecs partiels (stems/mélodie) : promus en warnings pour qu'un client
+    # qui ne lit que le sommet de la réponse ne les prenne pas pour un succès
+    warnings = [f"{k.removesuffix('_error')} : {r[k]}"
+                for k in ("stems_error", "melody_error") if r.get(k)]
+    if warnings:
+        r["warnings"] = warnings
     outdir = Path(r["outdir"])
     if write_fiche:
         (outdir / f"{r['slug']}.md").write_text(render_markdown(r), encoding="utf-8")
