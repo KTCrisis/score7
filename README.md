@@ -9,6 +9,10 @@ C'est de l'**estimation statistique**, pas une transcription exacte. Fiable sur 
 spectral, la dynamique, la stéréo, le loudness et la tonalité ; approximatif sur la
 grille d'accords (harmonie suspendue) et la mélodie (à nettoyer à l'oreille).
 
+score7 est le maillon **audio** de l'écosystème **keys7** (analyse depuis le son
+rendu, là où xrns7 lit le fichier projet et play7 joue le symbolique). Voir
+[ECOSYSTEM.md](https://github.com/KTCrisis/keys7/blob/main/ECOSYSTEM.md).
+
 ## Installation
 
 ```bash
