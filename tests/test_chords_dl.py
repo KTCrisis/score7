@@ -21,6 +21,16 @@ def test_segments_to_grid_aligns_and_filters():
     assert grid[1]["chord_full"] == "C"
 
 
+def test_segments_before_first_beat_keep_distinct_times():
+    """Plusieurs accords avant le premier beat gardent des timestamps distincts
+    (et ne s'écrasent pas tous à bt[0])."""
+    beat_times = [1.0, 2.0, 3.0]
+    segs = [(0.0, 0.5, "Fm", "F:min"), (0.5, 1.0, "C", "C")]
+    grid = chords_dl._segments_to_grid(beat_times=beat_times, segs=segs)
+    times = [g["time"] for g in grid]
+    assert times == [0.0, 0.5]  # distincts, = vrais débuts de segment
+
+
 def test_chain_prefers_btc(monkeypatch):
     monkeypatch.setattr(chords_dl, "try_btc", lambda p, bt: [{"chord": "Fm"}])
     grid, src = chords_dl.estimate_chords_chain("x", [0, 1], lambda: [{"chord": "C"}])

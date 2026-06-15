@@ -133,8 +133,12 @@ def rhythm_pattern(drums_path: str, beat_times: np.ndarray, sr: int = 22050,
         librosa.onset.onset_detect(onset_envelope=oenv_full, sr=sr), sr=sr)
     micro_ms = None
     if len(onset_t) and len(step_t):
-        dev = [abs(ot - step_t[int(np.argmin(np.abs(step_t - ot)))]) for ot in onset_t]
-        micro_ms = round(float(np.mean(dev)) * 1000, 1)
+        # n'évaluer que les onsets couverts par la grille : un onset d'outro (après le
+        # dernier beat) snapperait au dernier step à plusieurs secondes et fausserait la moyenne
+        in_grid = onset_t[(onset_t >= step_t[0]) & (onset_t <= step_t[-1])]
+        if len(in_grid):
+            dev = [abs(ot - step_t[int(np.argmin(np.abs(step_t - ot)))]) for ot in in_grid]
+            micro_ms = round(float(np.mean(dev)) * 1000, 1)
     swing = _swing(onset_t, beat_times)
 
     return {

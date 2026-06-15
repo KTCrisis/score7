@@ -141,6 +141,21 @@ def test_rhythm_falls_back_to_madmom(monkeypatch):
     assert tempo["bpm"] == 100.0
 
 
+def test_estimate_key_tags_source():
+    """estimate_key marque sa provenance (source unique de vérité pour la tonalité)."""
+    import librosa
+    y = _tone([261.63, 329.63, 392.0])
+    chroma = np.mean(librosa.feature.chroma_cqt(y=y, sr=SR), axis=1)
+    assert core.estimate_key(chroma)["source"] == "krumhansl"
+
+
+def test_reconcile_noop_on_cnn_key():
+    """Une clé CNN (source autoritaire) n'est jamais réécrite par la mélodie."""
+    key = {"root": "F", "mode": "minor", "source": "madmom_cnn"}
+    notes = [{"pitch": 60 + pc} for pc, n in {0: 50, 5: 20, 8: 15}.items() for _ in range(n)]
+    assert core.reconcile_key_with_melody(key, notes) is key  # inchangé, pas de réconciliation
+
+
 def test_norm_key_label_flats_to_sharps():
     """Labels madmom (bémols) normalisés vers NOTE_NAMES (dièses)."""
     assert core._norm_key_label("F minor") == ("F", "minor")
