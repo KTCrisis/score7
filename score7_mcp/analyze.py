@@ -5,6 +5,7 @@ C'est le point d'entrée partagé par le CLI et le serveur MCP.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -17,6 +18,13 @@ def slugify(name: str) -> str:
     return name.lower().replace(" ", "_")
 
 
+def _resolve_outdir(outdir: str | None = None) -> str:
+    """Dossier de sortie : argument explicite > variable d'env SCORE7_OUT > défaut
+    ~/Renoise/analyses (le défaut historique, lié au workflow Renoise)."""
+    chosen = outdir or os.environ.get("SCORE7_OUT") or str(Path.home() / "Renoise" / "analyses")
+    return str(Path(chosen).expanduser())
+
+
 def analyze_file(path: str, sr: int = 22050, title: str | None = None,
                  separate: bool = False, melody: bool = False,
                  melody_src: str | None = None, outdir: str | None = None,
@@ -25,7 +33,7 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
     path = str(Path(path).expanduser().resolve())
     title = title or Path(path).stem
     slug = slugify(title)
-    outdir = str(Path(outdir).expanduser()) if outdir else str(Path.home() / "Renoise" / "analyses")
+    outdir = _resolve_outdir(outdir)
     Path(outdir).mkdir(parents=True, exist_ok=True)
 
     try:

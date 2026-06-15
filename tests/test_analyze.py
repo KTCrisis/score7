@@ -7,13 +7,24 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from score7_mcp.analyze import analyze_file
+from score7_mcp.analyze import _resolve_outdir, analyze_file
 
 
 def _write_tone(path, seconds=2.0, sr=22050):
     t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
     y = 0.5 * np.sin(2 * np.pi * 440 * t)
     sf.write(path, y, sr)
+
+
+def test_resolve_outdir_precedence(monkeypatch):
+    """Priorité : argument explicite > $SCORE7_OUT > défaut ~/Renoise/analyses."""
+    from pathlib import Path
+
+    monkeypatch.setenv("SCORE7_OUT", "/tmp/score7_env")
+    assert _resolve_outdir("/explicit/dir") == "/explicit/dir"   # explicite gagne
+    assert _resolve_outdir(None) == "/tmp/score7_env"            # sinon env
+    monkeypatch.delenv("SCORE7_OUT", raising=False)
+    assert _resolve_outdir(None) == str(Path.home() / "Renoise" / "analyses")  # sinon défaut
 
 
 def test_corrupted_file_raises_clean_valueerror(tmp_path):
