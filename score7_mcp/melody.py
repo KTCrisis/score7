@@ -80,20 +80,61 @@ def _melody_pyin(path: str, sr: int = 22050, fmin="C3", fmax="C7", min_dur=0.1):
     return notes
 
 
+def _melody_pesto(path: str, conf_pct: float = 60.0, min_dur: float = 0.1) -> list:
+    """Suivi de hauteur PESTO (transformer self-supervised, ISMIR 2023 ; extra [melody]).
+    État de l'art du pitch monophonique : bien plus précis et pur que pYIN (résolution
+    ~10 ms, quasi pas de notes hors-gamme). Comme tout pitch tracker mono, il suit la voix
+    la plus saillante — sur un stem polyphonique ce n'est pas toujours la mélodie, d'où
+    l'intérêt de le lancer sur un stem isolé. Segmente le f0 en notes (quantif. demi-ton,
+    seuil de confiance au percentile `conf_pct`, durée mini `min_dur`)."""
+    import pesto
+    import pretty_midi
+    import torch
+
+    y, sr = librosa.load(path, sr=None, mono=True)
+    ts, pitch, conf = (np.asarray(a) for a in pesto.predict(torch.from_numpy(y).float(), sr)[:3])
+    midi = librosa.hz_to_midi(pitch)
+    dt = float(ts[1] - ts[0]) / (1000.0 if ts.max() > 100 else 1.0)  # ts en ms ou s
+    thr = float(np.percentile(conf, conf_pct))
+    notes, cur, start = [], None, 0
+
+    def flush(end):
+        if cur is not None and (end - start) * dt >= min_dur:
+            notes.append({"pitch": cur, "start": round(start * dt, 2),
+                          "dur": round((end - start) * dt, 2),
+                          "name": pretty_midi.note_number_to_name(cur)})
+
+    for i in range(len(midi)):
+        p = int(round(midi[i])) if (conf[i] >= thr and np.isfinite(midi[i])) else None
+        if p != cur:
+            flush(i)
+            cur, start = p, i
+    flush(len(midi))  # ferme la dernière note (sinon une note tenue jusqu'au bout est perdue)
+    return notes
+
+
 def extract_melody(path: str, outdir: str, slug: str, band=(60, 84)) -> dict:
-    """Ligne mélodique → MIDI + séquence. Voie principale : transcription poly + skyline.
-    Fallback pYIN. À lancer de préférence sur un stem isolé (Demucs 'other')."""
+    """Ligne mélodique → MIDI + séquence. Chaîne : PESTO (pitch mono, état de l'art) >
+    skyline (transcription poly) > pYIN. À lancer de préférence sur un stem isolé."""
     import pretty_midi
     print(f"→ Extraction mélodie sur {Path(path).name}…", file=sys.stderr)
-    method = "skyline (transcription poly)"
+    notes, method = None, None
     try:
-        full = str(Path(outdir) / f"{slug}_poly_full.mid")
-        transcribe(path, full)
-        notes = _skyline(full, lo=band[0], hi=band[1])
+        notes = _melody_pesto(path)
+        if not notes:
+            raise ValueError("PESTO n'a renvoyé aucune note")
+        method = "PESTO (pitch mono, ISMIR 2023)"
     except Exception as e:
-        print(f"  transcription poly indisponible ({e}) → fallback pYIN", file=sys.stderr)
-        notes = _melody_pyin(path)
-        method = "pYIN monophonique (fallback)"
+        print(f"  PESTO indisponible ({e}) → skyline", file=sys.stderr)
+        try:
+            full = str(Path(outdir) / f"{slug}_poly_full.mid")
+            transcribe(path, full)
+            notes = _skyline(full, lo=band[0], hi=band[1])
+            method = "skyline (transcription poly)"
+        except Exception as e2:
+            print(f"  transcription poly indisponible ({e2}) → fallback pYIN", file=sys.stderr)
+            notes = _melody_pyin(path)
+            method = "pYIN monophonique (fallback)"
 
     pm = pretty_midi.PrettyMIDI()
     inst = pretty_midi.Instrument(program=0, name="melody")

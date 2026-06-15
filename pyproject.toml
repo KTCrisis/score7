@@ -28,6 +28,7 @@ dependencies = [
 melody = [
     "demucs>=4.0",
     "piano_transcription_inference>=0.0.6",
+    "pesto-pitch>=2.0",
 ]
 # Beat/downbeat tracking neuronal (BPM + métrique fiables). Priorité Beat This! (transformer,
 # ISMIR 2024, état de l'art, PyTorch — torch déjà tiré par [melody]) puis madmom (RNN+DBN).

@@ -59,7 +59,7 @@ score7_mcp/
 | Stereo | L/R correlation, side/mid ratio |
 | Loudness | integrated LUFS (pyloudnorm), crest factor |
 | Separation | Demucs (htdemucs) |
-| Melody | polyphonic transcription → band-limited skyline (C4–C6, salience = duration×velocity) |
+| Melody | priority **PESTO** (self-supervised pitch transformer, ISMIR 2023, ~10ms, near-pure) > polyphonic transcription → band-limited skyline (C4–C6) > pYIN. Mono pitch follows the most salient voice, so run on an isolated stem; it does NOT solve melody-vs-accompaniment selection on polyphonic piano. |
 | Rhythm pattern | drum stem split into 3 bands (kick/snare/hats), onset envelope folded onto the beat grid (step-sequence), microtiming + swing ratio from onset deviation. Band labels are a frequency heuristic, not classification. Needs `--separate`. |
 | Stem texture | per stem: spectral profile + spectral flux + centroid CV (timbre movement), HPSS percussive ratio, RMS energy share, stereo width. Needs `--separate`. |
 
