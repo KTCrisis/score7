@@ -16,7 +16,7 @@ def main(argv=None):
                                  description="Analyse harmonique et sonore d'un fichier audio.")
     ap.add_argument("file")
     ap.add_argument("--out", default=None,
-                    help="dossier de sortie (défaut : $SCORE7_OUT, sinon ~/Renoise/analyses)")
+                    help="dossier de sortie (défaut : $SCORE7_OUT, sinon ~/audio_analysis)")
     ap.add_argument("--title", default=None, help="titre + slug des fichiers de sortie")
     ap.add_argument("--json", action="store_true", help="écrit aussi un .json")
     ap.add_argument("--separate", action="store_true", help="séparation stems (Demucs)")

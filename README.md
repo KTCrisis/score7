@@ -42,7 +42,7 @@ score7 track.flac --title my_title --separate --melody
 score7 track.flac --melody --melody-src stems/other.wav
 ```
 
-Output goes to `--out` if given, else `$SCORE7_OUT`, else `~/Renoise/analyses/`: a
+Output goes to `--out` if given, else `$SCORE7_OUT`, else `~/audio_analysis/`: a
 `.md` sheet, optional `.json`, stems, `<slug>_poly_full.mid`, `<slug>_melody.mid`.
 
 Tempo and meter are always estimated (no flag); when the tempo octave is ambiguous
@@ -63,6 +63,29 @@ Tools: `analyze_audio` (full analysis, `separate`/`melody` options) and
   command: /home/fluxart/py_env/bin/python
   args: ["-m", "score7_mcp"]
 ```
+
+## Analysis layers
+
+score7 reads a track on four layers, from the most structural to the most granular.
+
+**Harmony.** The key (which scale the piece lives in) and the chord grid (its
+harmonic motion). Answers "what is the tonal colour, and how does it move".
+
+**Time.** Tempo and meter (the pulse and its grouping), plus a dynamic structure
+that marks where sections rise and fall in energy. Answers "how fast, and how is it
+organised over time".
+
+**Sound.** Spectral profile (bright vs dark), stereo image (narrow vs wide), and
+loudness with crest factor (level and preserved dynamic range). Answers "what does
+it sound like and how is it mixed", independently of the notes.
+
+**Stems** (`--separate`). Demucs splits the mix, then score7 analyses what the full
+mix hides: the melodic line on an isolated stem, the drum pattern (kick/snare/hats
+folded onto the beat grid, with microtiming and swing), and the timbral texture of
+each stem. Answers "what is each instrument actually doing".
+
+The first three layers run on the bare core (CPU, no PyTorch). The stem layer needs
+the `[melody]` extra.
 
 ## Methods
 

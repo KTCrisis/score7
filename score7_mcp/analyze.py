@@ -20,8 +20,9 @@ def slugify(name: str) -> str:
 
 def _resolve_outdir(outdir: str | None = None) -> str:
     """Dossier de sortie : argument explicite > variable d'env SCORE7_OUT > défaut
-    ~/Renoise/analyses (le défaut historique, lié au workflow Renoise)."""
-    chosen = outdir or os.environ.get("SCORE7_OUT") or str(Path.home() / "Renoise" / "analyses")
+    ~/audio_analysis. Le défaut est neutre ; régler SCORE7_OUT pour le rediriger
+    (ex. ~/Renoise/analyses pour un workflow Renoise)."""
+    chosen = outdir or os.environ.get("SCORE7_OUT") or str(Path.home() / "audio_analysis")
     return str(Path(chosen).expanduser())
 
 

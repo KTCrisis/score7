@@ -24,7 +24,7 @@ def test_resolve_outdir_precedence(monkeypatch):
     assert _resolve_outdir("/explicit/dir") == "/explicit/dir"   # explicite gagne
     assert _resolve_outdir(None) == "/tmp/score7_env"            # sinon env
     monkeypatch.delenv("SCORE7_OUT", raising=False)
-    assert _resolve_outdir(None) == str(Path.home() / "Renoise" / "analyses")  # sinon défaut
+    assert _resolve_outdir(None) == str(Path.home() / "audio_analysis")  # sinon défaut neutre
 
 
 def test_corrupted_file_raises_clean_valueerror(tmp_path):
