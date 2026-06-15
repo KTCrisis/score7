@@ -328,6 +328,37 @@ def reconcile_key_with_melody(key: dict, melody_notes: list, min_tonic_weight: f
     return out
 
 
+# madmom écrit les altérations en bémols ; on aligne sur NOTE_NAMES (dièses)
+_FLAT_TO_SHARP = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
+
+
+def _norm_key_label(label: str) -> tuple[str, str]:
+    """'F minor' / 'Db major' → ('F', 'minor') / ('C#', 'major')."""
+    parts = label.split()
+    root = _FLAT_TO_SHARP.get(parts[0], parts[0])
+    return root, (parts[1] if len(parts) > 1 else "major")
+
+
+def try_madmom_key(path):
+    """Tonalité par CNN (madmom, Korzeniowski 'genre-agnostic key', 2018 ; extra [rhythm]).
+    Tranche maj/min directement sur le signal, sans vote d'accords ni mélodie — plus fiable
+    que Krumhansl. Renvoie un dict au format de estimate_key, ou None si madmom est absent
+    ou échoue (l'appelant retombe alors sur Krumhansl + vote d'accords)."""
+    try:
+        from madmom.features.key import CNNKeyRecognitionProcessor, KEY_LABELS
+    except Exception:
+        return None
+    try:
+        pred = np.asarray(CNNKeyRecognitionProcessor()(path)).ravel()
+    except Exception:
+        return None
+    order = np.argsort(pred)[::-1]
+    root, mode = _norm_key_label(KEY_LABELS[int(order[0])])
+    runner_root, runner_mode = _norm_key_label(KEY_LABELS[int(order[1])])
+    return {"root": root, "mode": mode, "score": round(float(pred[order[0]]), 3),
+            "runner_up": f"{runner_root} {runner_mode}", "source": "madmom_cnn"}
+
+
 # --------------------------------------------------------------------------- accords
 def _chord_templates():
     templates = {}

@@ -52,7 +52,7 @@ score7_mcp/
 |-------|-----------|
 | Tempo | priority Beat This! (transformer, ISMIR 2024) > madmom (RNN+DBN) > librosa; BPM = median inter-beat interval; octave candidates (T/2, T, 2T) exposed with tempogram strength |
 | Meter | Beat This! / madmom downbeats (beats_per_bar) if installed, else accent-pattern folding on beat grid; binary/ternary subdivision names 6/8 and 12/8 |
-| Key | Krumhansl-Schmuckler (chroma CQT) **+ chord-function vote** **+ melody-tonic reconciliation** |
+| Key | priority **madmom CNN key** (genre-agnostic, Korzeniowski 2018) > Krumhansl-Schmuckler (chroma CQT) + chord-function vote + melody-tonic reconciliation (fallback) |
 | Chords | priority BTC (Bi-directional Transformer, ISMIR 2019, large-vocab 170 classes: maj/min/7/sus/dim) > madmom deep-chroma+CRF > cosine template matching on beat-synced chroma CENS. Neural grids beat-aligned, with a rich `chord_full` label kept alongside the maj/min compact. Default on (`dl_chords`); weights auto-downloaded to ~/.cache/score7/. **Key vote stays on the cosine grid** (neural detectors label tierce-less power chords as major, which skews the mode vote) — neural grid is display-only. |
 | Structure | per-window RMS + layer-onset detection (energy derivative) |
 | Spectral | centroid, rolloff 85%, bandwidth, flatness |
@@ -65,9 +65,16 @@ score7_mcp/
 
 ## Key detection — the important subtlety
 
-Krumhansl alone confuses a key with its relative (same notes). The chord-function
-vote fixes most cases but inherits the chord detector's major/minor third errors on
-pads. The melody is the **reliable discriminator for the mode**, not the tonic: when
+The primary detector is now **madmom's CNN key recognition** (genre-agnostic,
+Korzeniowski 2018): it decides maj/min straight from the signal, no chord vote, no
+melody needed (Future Club → F minor at 0.89). Everything below is the **fallback**
+used only when madmom is absent. When the CNN runs, the key is fully decoupled from
+the chord grid, so BTC's display grid can't skew it — no special handling required.
+
+Fallback chain — Krumhansl alone confuses a key with its relative (same notes). The
+chord-function vote fixes most cases but inherits the chord detector's major/minor
+third errors on pads. The melody is the **reliable discriminator for the mode**, not
+the tonic: when
 `--melody` runs, `core.reconcile_key_with_melody` keeps the harmonic tonic (Krumhansl
 + chord vote) and only decides minor-third vs major-third above it. It rewrites the
 tonic toward the dominant melody pitch class **only** if the harmonic tonic is nearly

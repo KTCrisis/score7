@@ -141,6 +141,14 @@ def test_rhythm_falls_back_to_madmom(monkeypatch):
     assert tempo["bpm"] == 100.0
 
 
+def test_norm_key_label_flats_to_sharps():
+    """Labels madmom (bémols) normalisés vers NOTE_NAMES (dièses)."""
+    assert core._norm_key_label("F minor") == ("F", "minor")
+    assert core._norm_key_label("Db major") == ("C#", "major")
+    assert core._norm_key_label("Bb minor") == ("A#", "minor")
+    assert core._norm_key_label("C") == ("C", "major")  # mode par défaut
+
+
 def _key(root, mode="major"):
     return {"root": root, "mode": mode, "score": 1.0, "runner_up": "x",
             "krumhansl_only": "x", "corrected": False}

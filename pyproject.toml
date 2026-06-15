@@ -48,6 +48,8 @@ pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
+# code tiers vendorisé (BTC) : conservé tel quel pour fidélité au modèle, hors lint
+extend-exclude = ["score7_mcp/_btc"]
 
 [tool.setuptools.packages.find]
 include = ["score7_mcp*"]
