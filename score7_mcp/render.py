@@ -32,17 +32,35 @@ def render_markdown(r: dict) -> str:
                  f"{k['before_melody']} → {k['root']} {k['mode']}.*")
     L.append(line + "\n")
 
-    L.append("## Grille d'accords estimée\n")
+    src = r.get("chords_source", "template")
+    src_label = {"btc": "BTC — transformer, vocabulaire riche",
+                 "madmom": "madmom — deep chroma + CRF",
+                 "template": "template chroma (estimation cosinus)"}.get(src, src)
+    L.append(f"## Grille d'accords — {src_label}\n")
     grid = r["chords"]
     if grid:
-        L.append("| Temps (s) | Accord | Beats | Confiance |")
-        L.append("|-----------|--------|-------|-----------|")
-        for s in grid[:40]:
-            t = f"{s['time']:.1f}" if s.get("time") is not None else "-"
-            L.append(f"| {t} | **{s['chord']}** | {s['beats']} | {s['conf']:.2f} |")
-        L.append(f"\n**Enchaînement :** {' → '.join(s['chord'] for s in grid[:16])}\n")
-        L.append("*Faible confiance / enchaînement instable = harmonie suspendue (ambient) — "
-                 "à corriger à l'oreille.*\n")
+        rich = any(s.get("chord_full") for s in grid)
+        if src == "template":
+            L.append("| Temps (s) | Accord | Beats | Confiance |")
+            L.append("|-----------|--------|-------|-----------|")
+            for s in grid[:40]:
+                t = f"{s['time']:.1f}" if s.get("time") is not None else "-"
+                L.append(f"| {t} | **{s['chord']}** | {s['beats']} | {s['conf']:.2f} |")
+        else:
+            L.append("| Temps (s) | Accord | Beats |")
+            L.append("|-----------|--------|-------|")
+            for s in grid[:40]:
+                t = f"{s['time']:.1f}" if s.get("time") is not None else "-"
+                L.append(f"| {t} | **{s.get('chord_full') or s['chord']}** | {s['beats']} |")
+        chain_key = "chord_full" if rich else "chord"
+        L.append(f"\n**Enchaînement :** "
+                 f"{' → '.join((s.get(chain_key) or s['chord']) for s in grid[:16])}\n")
+        if src == "template":
+            L.append("*Faible confiance / enchaînement instable = harmonie suspendue (ambient) — "
+                     "à corriger à l'oreille.*\n")
+        else:
+            L.append("*Reconnaissance par modèle entraîné — fiable sur maj/min, les qualités "
+                     "fines (7e, sus, dim) restent à confirmer à l'oreille.*\n")
     else:
         L.append("*Pas de grille exploitable.*\n")
 

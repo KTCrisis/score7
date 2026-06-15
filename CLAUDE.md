@@ -30,6 +30,8 @@ score7_mcp/
 ├── melody.py      # heavy/GPU (extra [melody]): Demucs separate, transcribe, skyline
 ├── texture.py     # per-stem rhythm pattern + texture (librosa only, runs on
 │                  #   separated stems): drum step-grid, microtiming/swing, stem timbre
+├── chords_dl.py   # deep-learning chord chain: BTC > madmom > template; beat-aligned
+├── _btc/          # vendored BTC inference subset (MIT, © 2019 Jonggwon Park)
 ├── analyze.py     # orchestrator → single results dict (shared by CLI + MCP)
 ├── render.py      # markdown fiche (Renoise-analyses format)
 ├── cli.py         # `score7` entry point
@@ -51,7 +53,7 @@ score7_mcp/
 | Tempo | priority Beat This! (transformer, ISMIR 2024) > madmom (RNN+DBN) > librosa; BPM = median inter-beat interval; octave candidates (T/2, T, 2T) exposed with tempogram strength |
 | Meter | Beat This! / madmom downbeats (beats_per_bar) if installed, else accent-pattern folding on beat grid; binary/ternary subdivision names 6/8 and 12/8 |
 | Key | Krumhansl-Schmuckler (chroma CQT) **+ chord-function vote** **+ melody-tonic reconciliation** |
-| Chords | cosine template matching on beat-synced chroma CENS, merged segments |
+| Chords | priority BTC (Bi-directional Transformer, ISMIR 2019, large-vocab 170 classes: maj/min/7/sus/dim) > madmom deep-chroma+CRF > cosine template matching on beat-synced chroma CENS. Neural grids beat-aligned, with a rich `chord_full` label kept alongside the maj/min compact. Default on (`dl_chords`); weights auto-downloaded to ~/.cache/score7/. **Key vote stays on the cosine grid** (neural detectors label tierce-less power chords as major, which skews the mode vote) — neural grid is display-only. |
 | Structure | per-window RMS + layer-onset detection (energy derivative) |
 | Spectral | centroid, rolloff 85%, bandwidth, flatness |
 | Stereo | L/R correlation, side/mid ratio |
