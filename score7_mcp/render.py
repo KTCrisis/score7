@@ -24,7 +24,9 @@ def render_markdown(r: dict) -> str:
     L.append("*Estimation statistique (chroma/spectral) — pas une transcription exacte.*\n")
 
     L.append("## Tonalité\n")
-    line = f"**{k['root']} {k['mode']}** (score {k['score']}) — second candidat : {k['runner_up']}."
+    detector = " *(CNN madmom)*" if k.get("source") == "madmom_cnn" else ""
+    line = (f"**{k['root']} {k['mode']}** (score {k['score']}){detector} — "
+            f"second candidat : {k['runner_up']}.")
     if k.get("corrected"):
         line += f" *Krumhansl seul disait {k['krumhansl_only']} ; corrigé par le vote d'accords.*"
     if k.get("changed_by_melody"):

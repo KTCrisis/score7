@@ -37,25 +37,35 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
     if y.size == 0:
         raise ValueError(f"Fichier audio vide : {path}")
     tempo, meter, beats, beat_times = core.estimate_rhythm(y, sr, path=path)
-    # Le vote de tonalité reste sur la grille cosinus (chroma) : stable et calibré pour
-    # ce vote. Un détecteur neuronal donne une grille plus juste à l'oreille mais étiquette
-    # les power chords (sans tierce) en majeur, ce qui déséquilibre le vote de mode. On
-    # découple donc : cosinus pour la tonalité, meilleur détecteur dispo pour l'affichage.
-    chords_vote = core.estimate_chords(y, sr, beats, beat_times)
-    chroma_mean = np.mean(librosa.feature.chroma_cqt(y=y, sr=sr), axis=1)
-    key = core.estimate_key(chroma_mean, chord_grid=chords_vote)
 
+    # Grille cosinus : fallback partagé (tonalité Krumhansl + chaîne d'accords), calculée
+    # au plus une fois. Dans le cas nominal (madmom + BTC présents) elle ne sert jamais.
+    _cos = []
+    def cosine_grid():
+        if not _cos:
+            _cos.append(core.estimate_chords(y, sr, beats, beat_times))
+        return _cos[0]
+
+    # Tonalité : CNN madmom (genre-agnostic, tranche maj/min sur le signal) en tête ; sinon
+    # Krumhansl + vote d'accords sur la grille cosinus, raffiné par la mélodie plus bas.
+    key = core.try_madmom_key(path)
+    key_source = "madmom_cnn"
+    if key is None:
+        chroma_mean = np.mean(librosa.feature.chroma_cqt(y=y, sr=sr), axis=1)
+        key = core.estimate_key(chroma_mean, chord_grid=cosine_grid())
+        key_source = "krumhansl"
+
+    # Accords (affichage) : chaîne BTC > madmom > cosinus, indépendante de la tonalité.
     if dl_chords:
         from score7_mcp import chords_dl
-        chords, chords_source = chords_dl.estimate_chords_chain(
-            path, beat_times, lambda: chords_vote)
+        chords, chords_source = chords_dl.estimate_chords_chain(path, beat_times, cosine_grid)
     else:
-        chords, chords_source = chords_vote, "template"
+        chords, chords_source = cosine_grid(), "template"
 
     results = {
         "title": title, "slug": slug, "file": path, "outdir": outdir,
         "bpm": tempo["bpm"], "tempo": tempo, "meter": meter, "key": key, "chords": chords,
-        "chords_source": chords_source,
+        "key_source": key_source, "chords_source": chords_source,
         "structure": core.dynamic_structure(y, sr),
         "spectral": core.spectral_profile(y, sr),
         "stereo": core.stereo_width(y_stereo),
@@ -89,9 +99,11 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
             try:
                 results["melody"] = mel_mod.extract_melody(src, outdir, slug)
                 results["melody"]["source"] = src
-                # la mélodie tranche le mode majeur/mineur (plus fiable que les accords)
-                results["key"] = core.reconcile_key_with_melody(
-                    results["key"], results["melody"]["notes"])
+                # la mélodie raffine le mode, mais seulement pour la voie Krumhansl :
+                # le CNN a déjà tranché maj/min de façon fiable
+                if key_source != "madmom_cnn":
+                    results["key"] = core.reconcile_key_with_melody(
+                        results["key"], results["melody"]["notes"])
             except Exception as e:
                 results["melody_error"] = str(e)
 

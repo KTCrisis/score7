@@ -11,7 +11,6 @@ ce module n'est touché que si l'appelant demande la reconnaissance d'accords.
 from __future__ import annotations
 
 import functools
-import os
 import sys
 import urllib.request
 from pathlib import Path
@@ -99,13 +98,12 @@ def try_btc(path: str, beat_times) -> list | None:
     """Grille d'accords BTC alignée sur les beats, ou None si le paquet/les poids
     manquent ou si l'inférence échoue (l'appelant retombe sur madmom puis le cosinus)."""
     try:
-        import torch  # noqa: F401
+        import torch
         from score7_mcp._btc.features import audio_file_to_features
     except Exception:
         return None
     try:
         model, mean, std, idx2c, nts, device, cfg = _btc_model()
-        import torch
         feat, fps, _ = audio_file_to_features(path, cfg)
         feat = (feat.T - mean) / std
         pad = nts - (feat.shape[0] % nts)
