@@ -29,13 +29,38 @@ mcp = FastMCP(
 )
 
 
+_CHORDS_RETURN_CAP = 24
+
+
 def _compact(r: dict) -> dict:
-    """Allège le résultat pour un retour MCP : on retire les tableaux de notes bruts."""
+    """Allège le résultat pour un retour MCP. La fiche markdown et le JSON sur disque
+    (écrits AVANT cet appel) gardent le détail complet ; le retour, lui, est plafonné pour
+    ne pas dépasser la limite de tokens d'un tool result. On retire les tableaux les plus
+    verbeux (notes/séquence mélodie, vecteurs de pattern rythmique) et on tronque la grille
+    d'accords — le client lit la fiche pour le détail intégral."""
     out = dict(r)
-    if "melody" in out and isinstance(out["melody"], dict):
+
+    # mélodie : le MIDI porte le détail ; retirer le tableau de notes ET la séquence verbeuse
+    if isinstance(out.get("melody"), dict):
         m = dict(out["melody"])
-        m.pop("notes", None)  # le MIDI tient la donnée complète
+        m.pop("notes", None)
+        m.pop("sequence", None)
         out["melody"] = m
+
+    # grille d'accords : tronquer (BTC en produit des centaines sur un morceau long)
+    chords = out.get("chords")
+    if isinstance(chords, list) and len(chords) > _CHORDS_RETURN_CAP:
+        out["chords"] = chords[:_CHORDS_RETURN_CAP]
+        out["chords_total"] = len(chords)  # signale que la fiche en a davantage
+
+    # pattern rythmique : garder les grilles ASCII lisibles, retirer les vecteurs bruts
+    rp = out.get("rhythm_pattern")
+    if isinstance(rp, dict) and isinstance(rp.get("bands"), dict):
+        rp = dict(rp)
+        rp["bands"] = {name: {k: v for k, v in band.items() if k != "pattern"}
+                       for name, band in rp["bands"].items()}
+        out["rhythm_pattern"] = rp
+
     return out
 
 
