@@ -152,12 +152,14 @@ def rhythm_pattern(drums_path: str, beat_times: np.ndarray, sr: int = 22050,
 
 
 # --------------------------------------------------------------------------- texture par stem
-def _spectral_flux(y: np.ndarray) -> float:
+def _spectral_flux(y: np.ndarray, S=None) -> float:
     """Flux spectral demi-rectifié, moyenné : mesure le mouvement du timbre dans le temps.
-    Faible = nappe statique ; élevé = son qui évolue (filtre qui bouge, arpège, attaques)."""
-    S = np.abs(librosa.stft(y))
-    S = S / (S.max() + 1e-9)
-    diff = np.maximum(np.diff(S, axis=1), 0.0)
+    Faible = nappe statique ; élevé = son qui évolue (filtre qui bouge, arpège, attaques).
+    `S` = magnitude STFT précalculée, réutilisable pour éviter une STFT de plus."""
+    if S is None:
+        S = np.abs(librosa.stft(y))
+    Sn = S / (S.max() + 1e-9)
+    diff = np.maximum(np.diff(Sn, axis=1), 0.0)
     return round(float(np.mean(np.sqrt(np.sum(diff ** 2, axis=0)))), 4)
 
 
@@ -166,16 +168,18 @@ def stem_texture(path: str, sr: int = 22050) -> dict:
     variation du centroïde), équilibre percussif/soutenu (HPSS), niveau et largeur stéréo."""
     y, _, y_stereo, _ = core.load_audio(path, sr=sr)
     rms = float(np.sqrt(np.mean(y ** 2)))
-    spec = core.spectral_profile(y, sr)
+    # une seule magnitude STFT partagée par le profil spectral, le centroïde et le flux
+    S = np.abs(librosa.stft(y))
+    spec = core.spectral_profile(y, sr, S=S)
 
-    cent = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+    cent = librosa.feature.spectral_centroid(S=S, sr=sr)[0]
     centroid_cv = round(float(np.std(cent) / (np.mean(cent) + 1e-9)), 3)
 
     y_h, y_p = librosa.effects.hpss(y)
     e_p, e_h = float(np.sqrt(np.mean(y_p ** 2))), float(np.sqrt(np.mean(y_h ** 2)))
     perc = round(e_p / (e_p + e_h + 1e-9), 3)
 
-    flux = _spectral_flux(y)
+    flux = _spectral_flux(y, S=S)
     movement = ("timbre stable" if flux < 0.02 and centroid_cv < 0.25
                 else "timbre mouvant" if flux > 0.05 or centroid_cv > 0.5
                 else "modérément animé")

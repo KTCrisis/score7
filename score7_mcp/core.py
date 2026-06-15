@@ -67,11 +67,13 @@ def _octave_candidates(oenv, sr, bpm):
     return out, out[1]["strength"]
 
 
-def estimate_tempo(y, sr):
+def estimate_tempo(y, sr, oenv=None):
     """BPM : beat tracking librosa pour la grille, mais le BPM retenu vient de la
     médiane des intervalles inter-beats — plus stable que le scalaire de beat_track,
-    qui hérite du prior à 120 BPM."""
-    oenv = librosa.onset.onset_strength(y=y, sr=sr)
+    qui hérite du prior à 120 BPM. `oenv` réutilisable pour éviter de recalculer
+    l'enveloppe d'onsets (coûteuse) plusieurs fois dans le même appel."""
+    if oenv is None:
+        oenv = librosa.onset.onset_strength(y=y, sr=sr)
     tempo, beats = librosa.beat.beat_track(onset_envelope=oenv, sr=sr)
     beat_times = librosa.frames_to_time(beats, sr=sr)
     if len(beat_times) > 2:
@@ -100,7 +102,7 @@ def _meter_name(beats_per_bar, subdivision):
     return _METER_NAMES.get(beats_per_bar, f"{beats_per_bar}/4")
 
 
-def estimate_meter(y, sr, beats_frames, beat_times, max_bar=7):
+def estimate_meter(y, sr, beats_frames, beat_times, max_bar=7, oenv=None):
     """Métrique par motif d'accents : l'enveloppe d'onsets échantillonnée sur chaque
     beat est repliée modulo chaque hypothèse de mesure (2..7 beats) ; la bonne
     hypothèse maximise le contraste downbeat vs reste. Une hypothèse bien expliquée
@@ -109,7 +111,8 @@ def estimate_meter(y, sr, beats_frames, beat_times, max_bar=7):
             "meter_confidence": 0.0, "source": "librosa"}
     if len(beats_frames) < 2 * max_bar:
         return null
-    oenv = librosa.onset.onset_strength(y=y, sr=sr)
+    if oenv is None:
+        oenv = librosa.onset.onset_strength(y=y, sr=sr)
     accents = np.array([float(oenv[min(int(f), len(oenv) - 1)]) for f in beats_frames])
     accents = accents - accents.mean()
     spread = accents.std() + 1e-9
@@ -199,19 +202,23 @@ def try_madmom_rhythm(path, beats_per_bar=(2, 3, 4, 5, 6, 7)):
             "beat_times": beat_times, "source": "madmom"}
 
 
-def _apply_external_rhythm(y, sr, ext):
+def _apply_external_rhythm(y, sr, ext, meter_fallback, oenv):
     """Construit (tempo, meter, beats, beat_times) à partir d'un tracker externe
     (Beat This! ou madmom) : sa grille de beats remplace celle de librosa — la synchro
     chroma des accords en profite aussi. Candidats d'octave et subdivision restent
-    calculés au tempogramme pour exposer l'ambiguïté éventuelle."""
-    oenv = librosa.onset.onset_strength(y=y, sr=sr)
+    calculés au tempogramme (oenv partagé) pour exposer l'ambiguïté éventuelle. Si le
+    tracker n'a pas livré de métrique (beats_per_bar None, downbeats illisibles), on
+    conserve l'estimation librosa par repliement d'accents plutôt que de la perdre."""
     candidates, confidence = _octave_candidates(oenv, sr, ext["bpm"])
     sub = _subdivision(oenv, sr, ext["bpm"])
     tempo = {"bpm": ext["bpm"], "bpm_candidates": candidates,
              "bpm_confidence": confidence, "source": ext["source"]}
     bpb = ext.get("beats_per_bar")
-    meter = {"meter": _meter_name(bpb, sub) if bpb else None, "beats_per_bar": bpb,
-             "subdivision": sub, "meter_confidence": None, "source": ext["source"]}
+    if bpb:
+        meter = {"meter": _meter_name(bpb, sub), "beats_per_bar": bpb,
+                 "subdivision": sub, "meter_confidence": None, "source": ext["source"]}
+    else:
+        meter = meter_fallback
     beat_times = np.asarray(ext["beat_times"])
     beats = librosa.time_to_frames(beat_times, sr=sr)
     return tempo, meter, beats, beat_times
@@ -222,11 +229,12 @@ def estimate_rhythm(y, sr, path=None):
     (RNN+DBN) > librosa seul. Le premier tracker disponible prend la main ; sa grille
     de beats remplace celle de librosa. Les deux trackers neuronaux ont besoin du
     chemin fichier (ils relisent l'audio), d'où le fallback librosa quand `path` manque."""
-    tempo, beats, beat_times = estimate_tempo(y, sr)
-    meter = estimate_meter(y, sr, beats, beat_times)
+    oenv = librosa.onset.onset_strength(y=y, sr=sr)  # calculé une fois, partagé
+    tempo, beats, beat_times = estimate_tempo(y, sr, oenv=oenv)
+    meter = estimate_meter(y, sr, beats, beat_times, oenv=oenv)
     ext = (try_beat_this(path) or try_madmom_rhythm(path)) if path else None
     if ext:
-        tempo, meter, beats, beat_times = _apply_external_rhythm(y, sr, ext)
+        tempo, meter, beats, beat_times = _apply_external_rhythm(y, sr, ext, meter, oenv)
     return tempo, meter, beats, beat_times
 
 
@@ -444,11 +452,15 @@ def dynamic_structure(y, sr, n_sections: int = 8):
 
 
 # --------------------------------------------------------------------------- spectral
-def spectral_profile(y, sr):
-    cent = float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr)))
-    roll = float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=0.85)))
-    bw = float(np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr)))
-    flat = float(np.mean(librosa.feature.spectral_flatness(y=y)))
+def spectral_profile(y, sr, S=None):
+    """`S` = magnitude STFT précalculée (np.abs(librosa.stft(y))) ; quand fournie, on
+    évite quatre STFT internes (centroïde/rolloff/bande/flatness la recalculent chacune)."""
+    if S is None:
+        S = np.abs(librosa.stft(y))
+    cent = float(np.mean(librosa.feature.spectral_centroid(S=S, sr=sr)))
+    roll = float(np.mean(librosa.feature.spectral_rolloff(S=S, sr=sr, roll_percent=0.85)))
+    bw = float(np.mean(librosa.feature.spectral_bandwidth(S=S, sr=sr)))
+    flat = float(np.mean(librosa.feature.spectral_flatness(S=S)))
     desc = ("sombre / froid — peu d'harmoniques hautes" if cent < 1500
             else "équilibré — médiums présents" if cent < 3000
             else "brillant — énergie marquée dans les aigus")
