@@ -11,7 +11,10 @@ ce module n'est touché que si l'appelant demande la reconnaissance d'accords.
 from __future__ import annotations
 
 import functools
+import os
+import shutil
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -61,12 +64,23 @@ def _segments_to_grid(segs, beat_times, min_beats: int = 1) -> list:
 
 # --------------------------------------------------------------------------- BTC
 def _ensure_btc_weights() -> str:
-    """Télécharge (une fois) les poids BTC large-vocabulaire dans ~/.cache/score7/."""
+    """Télécharge (une fois) les poids BTC large-vocabulaire dans ~/.cache/score7/.
+    Écriture atomique (fichier temporaire puis rename) + timeout : un download interrompu
+    ne laisse jamais un .pt tronqué qui passerait le test d'existence et empoisonnerait
+    le cache, forçant torch.load à échouer pour toujours."""
     _CACHE.mkdir(parents=True, exist_ok=True)
     dest = _CACHE / _BTC_VOCA_NAME
-    if not dest.exists():
-        print(f"→ téléchargement des poids BTC ({_BTC_VOCA_NAME})…", file=sys.stderr)
-        urllib.request.urlretrieve(_BTC_VOCA_URL, dest)
+    if dest.exists():
+        return str(dest)
+    print(f"→ téléchargement des poids BTC ({_BTC_VOCA_NAME})…", file=sys.stderr)
+    fd, tmp = tempfile.mkstemp(dir=_CACHE, suffix=".part")
+    try:
+        with urllib.request.urlopen(_BTC_VOCA_URL, timeout=30) as resp, os.fdopen(fd, "wb") as out:
+            shutil.copyfileobj(resp, out)
+        os.replace(tmp, dest)  # rename atomique : le fichier final n'apparaît que complet
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
     return str(dest)
 
 
