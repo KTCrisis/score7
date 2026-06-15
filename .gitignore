@@ -9,3 +9,6 @@ dist/
 htdemucs/
 *.mid
 *.wav
+
+# contexte assistant local (hors repo public)
+CLAUDE.md
