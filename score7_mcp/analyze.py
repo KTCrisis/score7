@@ -56,6 +56,15 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
                 results["stems"] = mel_mod.separate(path, outdir)
             except Exception as e:
                 results["stems_error"] = str(e)
+            # couche rythme + texture par stem (librosa seul, pas de GPU)
+            if results.get("stems"):
+                try:
+                    from score7_mcp import texture as tex_mod
+                    bpb = (meter or {}).get("beats_per_bar") or 4
+                    results.update(tex_mod.analyze_stems(
+                        results["stems"], beat_times, sr=sr, beats_per_bar=bpb))
+                except Exception as e:
+                    results["texture_error"] = str(e)
         if melody:
             src = melody_src
             if src is None and results.get("stems"):

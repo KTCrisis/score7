@@ -28,6 +28,8 @@ score7_mcp/
 ├── core.py        # signal analyses (no heavy deps): key, chords, structure,
 │                  #   spectral, stereo, loudness — and key reconciliation
 ├── melody.py      # heavy/GPU (extra [melody]): Demucs separate, transcribe, skyline
+├── texture.py     # per-stem rhythm pattern + texture (librosa only, runs on
+│                  #   separated stems): drum step-grid, microtiming/swing, stem timbre
 ├── analyze.py     # orchestrator → single results dict (shared by CLI + MCP)
 ├── render.py      # markdown fiche (Renoise-analyses format)
 ├── cli.py         # `score7` entry point
@@ -56,6 +58,8 @@ score7_mcp/
 | Loudness | integrated LUFS (pyloudnorm), crest factor |
 | Separation | Demucs (htdemucs) |
 | Melody | polyphonic transcription → band-limited skyline (C4–C6, salience = duration×velocity) |
+| Rhythm pattern | drum stem split into 3 bands (kick/snare/hats), onset envelope folded onto the beat grid (step-sequence), microtiming + swing ratio from onset deviation. Band labels are a frequency heuristic, not classification. Needs `--separate`. |
+| Stem texture | per stem: spectral profile + spectral flux + centroid CV (timbre movement), HPSS percussive ratio, RMS energy share, stereo width. Needs `--separate`. |
 
 ## Key detection — the important subtlety
 

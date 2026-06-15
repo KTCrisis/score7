@@ -76,6 +76,44 @@ def render_markdown(r: dict) -> str:
         L.append(f"**Classes de hauteur :** {m['pitch_classes']}\n")
         L.append(f"**Séquence :** {m['sequence']}\n")
         L.append("*Ligne supérieure estimée — à nettoyer dans Renoise/MuseScore.*\n")
+    rp = r.get("rhythm_pattern")
+    if rp and rp.get("available"):
+        L.append("## Rythme — pattern batterie\n")
+        L.append(f"Grille repliée sur une mesure, {rp['steps_per_beat']} pas par temps "
+                 f"(`X` fort · `x` faible · `.` silence) :\n")
+        L.append("```")
+        for band in ("kick", "snare", "hats"):
+            b = rp["bands"].get(band)
+            if b:
+                L.append(f"{band:5s} | {b['grid']}   ({b['density_hz']} onsets/s)")
+        L.append("```")
+        groove = []
+        if rp.get("microtiming_ms") is not None:
+            groove.append(f"microtiming moyen {rp['microtiming_ms']} ms")
+        if rp.get("swing_ratio") is not None:
+            tag = ("droit" if rp["swing_pct"] < 20 else
+                   "swing marqué" if rp["swing_pct"] > 60 else "légèrement swingué")
+            groove.append(f"swing {rp['swing_ratio']} ({rp['swing_pct']} % — {tag})")
+        if groove:
+            L.append(f"\n**Groove :** {', '.join(groove)}.")
+        L.append(f"\n*{rp['note']}.*\n")
+
+    tex = r.get("stem_textures")
+    if tex:
+        L.append("## Texture par stem\n")
+        L.append("| Stem | Part | Caractère | Centroïde | Flux | Percussif | Stéréo |")
+        L.append("|------|------|-----------|-----------|------|-----------|--------|")
+        for name in ("drums", "bass", "other", "vocals"):
+            t = tex.get(name)
+            if not t or "error" in t:
+                continue
+            share = f"{t['energy_share']:.0%}" if t.get("energy_share") is not None else "-"
+            L.append(f"| {name} | {share} | {t['description']} | "
+                     f"{t['spectral']['centroid_hz']} Hz | {t['spectral_flux']} | "
+                     f"{t['percussive_ratio']} | {t['stereo']['side_mid_ratio']} |")
+        L.append("\n*Part = énergie RMS relative dans le mix. Flux élevé = timbre mouvant ; "
+                 "percussif proche de 1 = transitoire, proche de 0 = soutenu.*\n")
+
     if r.get("stems"):
         L.append(f"## Stems séparés\n\n`{r['stems']}`\n")
 
