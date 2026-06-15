@@ -304,6 +304,7 @@ def estimate_key(chroma_mean, chord_grid=None, w_chords=1.0):
         "runner_up": f"{cand[1][0]} {cand[1][1]}",
         "krumhansl_only": f"{kcand[0][0]} {kcand[0][1]}",
         "corrected": kcand[0][:2] != (root, mode),
+        "source": "krumhansl",
     }
 
 
@@ -315,7 +316,9 @@ def reconcile_key_with_melody(key: dict, melody_notes: list, min_tonic_weight: f
     (Krumhansl + vote d'accords) et on ne tranche que le mode au-dessus d'elle. La tonique
     n'est réécrite vers la note dominante que si celle de l'harmonie est quasi absente de
     la mélodie (< min_tonic_weight) — cas où l'analyse harmonique est manifestement à côté."""
-    if not melody_notes:
+    # no-op sur une clé d'un détecteur autoritaire (CNN madmom) : son mode est déjà fiable,
+    # la mélodie ne doit pas le réécrire. Le garde-fou vit ici, pas chez l'appelant.
+    if not melody_notes or key.get("source") == "madmom_cnn":
         return key
     pcs = np.bincount([n["pitch"] % 12 for n in melody_notes], minlength=12)
     total = pcs.sum()

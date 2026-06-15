@@ -48,12 +48,11 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
 
     # Tonalité : CNN madmom (genre-agnostic, tranche maj/min sur le signal) en tête ; sinon
     # Krumhansl + vote d'accords sur la grille cosinus, raffiné par la mélodie plus bas.
+    # Chaque détecteur tague key["source"] : une seule source de vérité, dérivée plus bas.
     key = core.try_madmom_key(path)
-    key_source = "madmom_cnn"
     if key is None:
         chroma_mean = np.mean(librosa.feature.chroma_cqt(y=y, sr=sr), axis=1)
         key = core.estimate_key(chroma_mean, chord_grid=cosine_grid())
-        key_source = "krumhansl"
 
     # Accords (affichage) : chaîne BTC > madmom > cosinus, indépendante de la tonalité.
     if dl_chords:
@@ -65,7 +64,7 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
     results = {
         "title": title, "slug": slug, "file": path, "outdir": outdir,
         "bpm": tempo["bpm"], "tempo": tempo, "meter": meter, "key": key, "chords": chords,
-        "key_source": key_source, "chords_source": chords_source,
+        "key_source": key.get("source"), "chords_source": chords_source,
         "structure": core.dynamic_structure(y, sr),
         "spectral": core.spectral_profile(y, sr),
         "stereo": core.stereo_width(y_stereo),
@@ -99,11 +98,9 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
             try:
                 results["melody"] = mel_mod.extract_melody(src, outdir, slug)
                 results["melody"]["source"] = src
-                # la mélodie raffine le mode, mais seulement pour la voie Krumhansl :
-                # le CNN a déjà tranché maj/min de façon fiable
-                if key_source != "madmom_cnn":
-                    results["key"] = core.reconcile_key_with_melody(
-                        results["key"], results["melody"]["notes"])
+                # reconcile_key_with_melody no-op de lui-même sur une clé CNN (mode déjà fiable)
+                results["key"] = core.reconcile_key_with_melody(
+                    results["key"], results["melody"]["notes"])
             except Exception as e:
                 results["melody_error"] = str(e)
 

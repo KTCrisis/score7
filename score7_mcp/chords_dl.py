@@ -56,9 +56,10 @@ def _segments_to_grid(segs, beat_times, min_beats: int = 1) -> list:
         beats = max(eb - sb, 1)
         if beats < min_beats:
             continue
+        # time = vrai début du segment (et non bt[sb]) : sinon plusieurs accords avant le
+        # premier beat s'écrasent tous à bt[0] avec le même timestamp
         out.append({"chord": compact, "chord_full": full, "start_beat": sb,
-                    "beats": beats, "conf": 1.0,
-                    "time": float(bt[sb]) if sb < len(bt) else float(s)})
+                    "beats": beats, "conf": 1.0, "time": round(float(s), 2)})
     return out
 
 
@@ -118,7 +119,7 @@ def try_btc(path: str, beat_times) -> list | None:
         return None
     try:
         model, mean, std, idx2c, nts, device, cfg = _btc_model()
-        feat, fps, _ = audio_file_to_features(path, cfg)
+        feat, fps, song_len = audio_file_to_features(path, cfg)
         feat = (feat.T - mean) / std
         pad = nts - (feat.shape[0] % nts)
         feat = np.pad(feat, ((0, pad), (0, 0)), "constant")
@@ -141,7 +142,9 @@ def try_btc(path: str, beat_times) -> list | None:
                         start = fps * (nts * t + i)
                         prev = idx
             if prev is not None:
-                raw.append((start, fps * ninst * nts, prev))
+                # clamp à la durée réelle : feat a été zero-paddé, ne pas étirer le dernier
+                # accord jusque dans le silence du padding (~10 s sur-comptés autrement)
+                raw.append((start, min(fps * ninst * nts, song_len), prev))
     except Exception:
         return None
 
