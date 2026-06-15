@@ -51,3 +51,7 @@ line-length = 100
 
 [tool.setuptools.packages.find]
 include = ["score7_mcp*"]
+
+# Fichiers non-Python du sous-ensemble BTC vendorisé (config + licence MIT)
+[tool.setuptools.package-data]
+"score7_mcp._btc" = ["*.yaml", "LICENSE"]

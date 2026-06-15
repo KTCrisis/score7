@@ -21,6 +21,8 @@ def main(argv=None):
     ap.add_argument("--separate", action="store_true", help="séparation stems (Demucs)")
     ap.add_argument("--melody", action="store_true", help="extraction de la ligne mélodique")
     ap.add_argument("--melody-src", default=None, help="stem précis pour la mélodie")
+    ap.add_argument("--no-dl-chords", dest="dl_chords", action="store_false",
+                    help="accords par template chroma seul (sans BTC/madmom, rapide)")
     ap.add_argument("--sr", type=int, default=22050)
     args = ap.parse_args(argv)
 
@@ -29,7 +31,8 @@ def main(argv=None):
 
     try:
         r = analyze_file(args.file, sr=args.sr, title=args.title, separate=args.separate,
-                         melody=args.melody, melody_src=args.melody_src, outdir=args.out)
+                         melody=args.melody, melody_src=args.melody_src, outdir=args.out,
+                         dl_chords=args.dl_chords)
     except ValueError as e:
         sys.exit(f"score7 : {e}")
 
@@ -46,6 +49,7 @@ def main(argv=None):
     met = (r.get("meter") or {}).get("meter")
     meter_txt = f" · {met}" if met else ""
     print(f"\n{r['title']} — {k['root']} {k['mode']} · {r['bpm']} BPM{meter_txt} · "
+          f"accords {r.get('chords_source', 'template')} · "
           f"centroïde {r['spectral']['centroid_hz']} Hz · LUFS {r['loudness']['integrated_lufs']}")
     tp = r.get("tempo") or {}
     if tp.get("bpm_confidence") is not None and tp["bpm_confidence"] < 0.5:

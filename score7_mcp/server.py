@@ -49,16 +49,19 @@ def analyze_audio(
     write_json: bool = False,
     title: str | None = None,
     out_dir: str | None = None,
+    dl_chords: bool = True,
 ) -> dict:
     """Analyse un fichier audio et renvoie tonalité, accords, structure, spectral, stéréo,
     loudness. `separate`=True ajoute les stems Demucs ; `melody`=True extrait la ligne
-    mélodique (utilise un stem isolé si séparé, sinon le mix). Écrit une fiche markdown
-    dans out_dir (défaut ~/Renoise/analyses) sauf si write_fiche=False."""
+    mélodique (utilise un stem isolé si séparé, sinon le mix). `dl_chords`=True (défaut)
+    reconnaît les accords par BTC (transformer) avec repli madmom puis template ; False =
+    template chroma seul (rapide, sans GPU). Écrit une fiche markdown dans out_dir (défaut
+    ~/Renoise/analyses) sauf si write_fiche=False."""
     if not Path(file_path).expanduser().exists():
         return {"error": f"Fichier introuvable : {file_path}"}
     try:
         r = analyze_file(file_path, title=title, separate=separate, melody=melody,
-                         melody_src=melody_src, outdir=out_dir)
+                         melody_src=melody_src, outdir=out_dir, dl_chords=dl_chords)
     except ValueError as e:
         return {"error": str(e)}
     # échecs partiels (stems/mélodie) : promus en warnings pour qu'un client

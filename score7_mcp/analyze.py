@@ -19,7 +19,8 @@ def slugify(name: str) -> str:
 
 def analyze_file(path: str, sr: int = 22050, title: str | None = None,
                  separate: bool = False, melody: bool = False,
-                 melody_src: str | None = None, outdir: str | None = None) -> dict:
+                 melody_src: str | None = None, outdir: str | None = None,
+                 dl_chords: bool = True) -> dict:
     """Analyse complète. `separate`/`melody` activent les étages lourds (extra [melody])."""
     path = str(Path(path).expanduser().resolve())
     title = title or Path(path).stem
@@ -36,13 +37,25 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
     if y.size == 0:
         raise ValueError(f"Fichier audio vide : {path}")
     tempo, meter, beats, beat_times = core.estimate_rhythm(y, sr, path=path)
-    chords = core.estimate_chords(y, sr, beats, beat_times)
+    # Le vote de tonalité reste sur la grille cosinus (chroma) : stable et calibré pour
+    # ce vote. Un détecteur neuronal donne une grille plus juste à l'oreille mais étiquette
+    # les power chords (sans tierce) en majeur, ce qui déséquilibre le vote de mode. On
+    # découple donc : cosinus pour la tonalité, meilleur détecteur dispo pour l'affichage.
+    chords_vote = core.estimate_chords(y, sr, beats, beat_times)
     chroma_mean = np.mean(librosa.feature.chroma_cqt(y=y, sr=sr), axis=1)
-    key = core.estimate_key(chroma_mean, chord_grid=chords)
+    key = core.estimate_key(chroma_mean, chord_grid=chords_vote)
+
+    if dl_chords:
+        from score7_mcp import chords_dl
+        chords, chords_source = chords_dl.estimate_chords_chain(
+            path, beat_times, lambda: chords_vote)
+    else:
+        chords, chords_source = chords_vote, "template"
 
     results = {
         "title": title, "slug": slug, "file": path, "outdir": outdir,
         "bpm": tempo["bpm"], "tempo": tempo, "meter": meter, "key": key, "chords": chords,
+        "chords_source": chords_source,
         "structure": core.dynamic_structure(y, sr),
         "spectral": core.spectral_profile(y, sr),
         "stereo": core.stereo_width(y_stereo),
