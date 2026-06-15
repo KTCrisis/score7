@@ -6,6 +6,7 @@ Les étapes lourdes (séparation, transcription, mélodie) vivent dans melody.py
 
 from __future__ import annotations
 
+import functools
 import warnings
 
 import librosa
@@ -138,6 +139,43 @@ def estimate_meter(y, sr, beats_frames, beat_times, max_bar=7):
             "subdivision": sub, "meter_confidence": round(conf, 3), "source": "librosa"}
 
 
+@functools.lru_cache(maxsize=2)
+def _beat_this_model(checkpoint: str, device: str, dbn: bool):
+    """Instancie (une fois par process) le tracker Beat This!. Le serveur MCP reste
+    vivant entre les appels — on évite de recharger les 77 Mo de poids à chaque analyse."""
+    from beat_this.inference import File2Beats
+    return File2Beats(checkpoint_path=checkpoint, device=device, dbn=dbn)
+
+
+def try_beat_this(path, checkpoint="final0"):
+    """Beat + downbeat tracking Beat This! (transformer CPJKU, ISMIR 2024 ; extra [rhythm]).
+    État de l'art actuel, plus robuste au style et au tempo que madmom RNN+DBN — et il
+    fournit les downbeats directement, donc la métrique sans repliement d'accents. Renvoie
+    None si le paquet est absent ou échoue ; l'appelant retombe sur madmom puis librosa."""
+    try:
+        import torch
+        from beat_this.inference import File2Beats  # noqa: F401 (présence du paquet)
+    except Exception:
+        return None
+    try:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        beats, downbeats = _beat_this_model(checkpoint, device, False)(path)
+    except Exception:
+        return None
+    if beats is None or len(beats) < 8:
+        return None
+    bpb = None
+    if downbeats is not None and len(downbeats) > 1:
+        # nombre de beats entre deux downbeats consécutifs = beats par mesure
+        idx = np.searchsorted(beats, downbeats)
+        spans = np.diff(idx)
+        spans = spans[spans > 0]
+        if len(spans):
+            bpb = int(round(float(np.median(spans))))
+    return {"bpm": round(60.0 / float(np.median(np.diff(beats))), 1),
+            "beats_per_bar": bpb, "beat_times": np.asarray(beats), "source": "beat_this"}
+
+
 def try_madmom_rhythm(path, beats_per_bar=(2, 3, 4, 5, 6, 7)):
     """Beat + downbeat tracking madmom (RNN + DBN), extra [rhythm]. Nettement plus
     fiable que librosa, mais les modèles sont entraînés surtout sur 3/4 et 4/4 —
@@ -161,24 +199,34 @@ def try_madmom_rhythm(path, beats_per_bar=(2, 3, 4, 5, 6, 7)):
             "beat_times": beat_times, "source": "madmom"}
 
 
+def _apply_external_rhythm(y, sr, ext):
+    """Construit (tempo, meter, beats, beat_times) à partir d'un tracker externe
+    (Beat This! ou madmom) : sa grille de beats remplace celle de librosa — la synchro
+    chroma des accords en profite aussi. Candidats d'octave et subdivision restent
+    calculés au tempogramme pour exposer l'ambiguïté éventuelle."""
+    oenv = librosa.onset.onset_strength(y=y, sr=sr)
+    candidates, confidence = _octave_candidates(oenv, sr, ext["bpm"])
+    sub = _subdivision(oenv, sr, ext["bpm"])
+    tempo = {"bpm": ext["bpm"], "bpm_candidates": candidates,
+             "bpm_confidence": confidence, "source": ext["source"]}
+    bpb = ext.get("beats_per_bar")
+    meter = {"meter": _meter_name(bpb, sub) if bpb else None, "beats_per_bar": bpb,
+             "subdivision": sub, "meter_confidence": None, "source": ext["source"]}
+    beat_times = np.asarray(ext["beat_times"])
+    beats = librosa.time_to_frames(beat_times, sr=sr)
+    return tempo, meter, beats, beat_times
+
+
 def estimate_rhythm(y, sr, path=None):
-    """Tempo + métrique réconciliés : madmom si installé (extra [rhythm]), sinon
-    librosa seul. Quand madmom prend la main, sa grille de beats remplace celle de
-    librosa (la synchro chroma des accords en profite aussi)."""
+    """Tempo + métrique. Priorité : Beat This! (transformer, état de l'art) > madmom
+    (RNN+DBN) > librosa seul. Le premier tracker disponible prend la main ; sa grille
+    de beats remplace celle de librosa. Les deux trackers neuronaux ont besoin du
+    chemin fichier (ils relisent l'audio), d'où le fallback librosa quand `path` manque."""
     tempo, beats, beat_times = estimate_tempo(y, sr)
     meter = estimate_meter(y, sr, beats, beat_times)
-    mm = try_madmom_rhythm(path) if path else None
-    if mm:
-        oenv = librosa.onset.onset_strength(y=y, sr=sr)
-        candidates, confidence = _octave_candidates(oenv, sr, mm["bpm"])
-        sub = _subdivision(oenv, sr, mm["bpm"])
-        tempo = {"bpm": mm["bpm"], "bpm_candidates": candidates,
-                 "bpm_confidence": confidence, "source": "madmom"}
-        meter = {"meter": _meter_name(mm["beats_per_bar"], sub),
-                 "beats_per_bar": mm["beats_per_bar"], "subdivision": sub,
-                 "meter_confidence": None, "source": "madmom"}
-        beat_times = mm["beat_times"]
-        beats = librosa.time_to_frames(beat_times, sr=sr)
+    ext = (try_beat_this(path) or try_madmom_rhythm(path)) if path else None
+    if ext:
+        tempo, meter, beats, beat_times = _apply_external_rhythm(y, sr, ext)
     return tempo, meter, beats, beat_times
 
 
@@ -251,24 +299,32 @@ def estimate_key(chroma_mean, chord_grid=None, w_chords=1.0):
     }
 
 
-def reconcile_key_with_melody(key: dict, melody_notes: list) -> dict:
-    """Réconcilie la tonalité avec la mélodie — le signal le plus fiable pour le mode.
-    Tonique = classe de hauteur la plus fréquente ; mode = tierce mineure (+3) vs
-    majeure (+4) au-dessus de la tonique. Corrige les cas où le détecteur d'accords
-    étiquette des majeurs parasites (tierce ambiguë sur nappes)."""
+def reconcile_key_with_melody(key: dict, melody_notes: list, min_tonic_weight: float = 0.10) -> dict:
+    """Réconcilie la tonalité avec la mélodie. La mélodie est le signal le plus fiable
+    pour le **mode** (tierce mineure +3 vs majeure +4 au-dessus de la tonique), mais un
+    mauvais signal pour la **tonique** : la quinte est souvent aussi fréquente que la
+    fondamentale (sur Fm, le do domine). On garde donc la tonique de l'analyse harmonique
+    (Krumhansl + vote d'accords) et on ne tranche que le mode au-dessus d'elle. La tonique
+    n'est réécrite vers la note dominante que si celle de l'harmonie est quasi absente de
+    la mélodie (< min_tonic_weight) — cas où l'analyse harmonique est manifestement à côté."""
     if not melody_notes:
         return key
     pcs = np.bincount([n["pitch"] % 12 for n in melody_notes], minlength=12)
-    if pcs.sum() == 0:
+    total = pcs.sum()
+    if total == 0:
         return key
-    tonic = int(np.argmax(pcs))
+    key_tonic = NOTE_NAMES.index(key["root"])
+    # tonique harmonique conservée si elle est réellement présente dans la mélodie ;
+    # sinon repli sur la classe de hauteur dominante
+    tonic = key_tonic if pcs[key_tonic] / total >= min_tonic_weight else int(np.argmax(pcs))
     minor_third = pcs[(tonic + 3) % 12]
     major_third = pcs[(tonic + 4) % 12]
     mode = "minor" if minor_third >= major_third else "major"
-    new_root, changed = NOTE_NAMES[tonic], (NOTE_NAMES[tonic], mode) != (key["root"], key["mode"])
+    new_root = NOTE_NAMES[tonic]
     out = dict(key)
     out.update({"root": new_root, "mode": mode, "reconciled_by_melody": True,
-                "before_melody": f"{key['root']} {key['mode']}", "changed_by_melody": changed})
+                "before_melody": f"{key['root']} {key['mode']}",
+                "changed_by_melody": (new_root, mode) != (key["root"], key["mode"])})
     return out
 
 

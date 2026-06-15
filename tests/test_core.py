@@ -114,6 +114,63 @@ def test_stereo_mono_detection():
     assert core.stereo_width(y[np.newaxis, :])["mono"] is True
 
 
+def test_rhythm_prefers_beat_this(monkeypatch):
+    """Beat This! disponible → il prime sur madmom et sur librosa."""
+    fake = {"bpm": 128.0, "beats_per_bar": 4, "source": "beat_this",
+            "beat_times": np.arange(0.0, 12.0, 60.0 / 128.0)}
+    monkeypatch.setattr(core, "try_beat_this", lambda p: fake)
+    monkeypatch.setattr(core, "try_madmom_rhythm",
+                        lambda p, **k: {"bpm": 100.0, "beats_per_bar": 3, "source": "madmom",
+                                        "beat_times": np.arange(0.0, 12.0, 0.6)})
+    y = _click_track(np.arange(0.0, 12.0, 0.6), dur=12.0)
+    tempo, meter, beats, bt = core.estimate_rhythm(y, SR, path="x")
+    assert tempo["source"] == "beat_this"
+    assert tempo["bpm"] == 128.0
+    assert meter["beats_per_bar"] == 4
+
+
+def test_rhythm_falls_back_to_madmom(monkeypatch):
+    """Beat This! absent → madmom prend la main avant librosa."""
+    monkeypatch.setattr(core, "try_beat_this", lambda p: None)
+    monkeypatch.setattr(core, "try_madmom_rhythm",
+                        lambda p, **k: {"bpm": 100.0, "beats_per_bar": 4, "source": "madmom",
+                                        "beat_times": np.arange(0.0, 12.0, 0.6)})
+    y = _click_track(np.arange(0.0, 12.0, 0.6), dur=12.0)
+    tempo, meter, beats, bt = core.estimate_rhythm(y, SR, path="x")
+    assert tempo["source"] == "madmom"
+    assert tempo["bpm"] == 100.0
+
+
+def _key(root, mode="major"):
+    return {"root": root, "mode": mode, "score": 1.0, "runner_up": "x",
+            "krumhansl_only": "x", "corrected": False}
+
+
+def _notes(counts):
+    """counts = {pitch_class: n} → liste de notes (octave 4)."""
+    return [{"pitch": 60 + pc} for pc, n in counts.items() for _ in range(n)]
+
+
+def test_reconcile_keeps_harmonic_tonic_over_fifth():
+    """Cas Future Club : harmonie = F, mélodie dominée par le do (quinte de Fm) mais
+    le fa est bien présent → la tonique reste F, le mode passe en mineur (tierce G#)."""
+    key = _key("F", "major")
+    notes = _notes({0: 50, 5: 20, 8: 15})  # C (quinte), F (tonique), G# (tierce min)
+    out = core.reconcile_key_with_melody(key, notes)
+    assert out["root"] == "F"
+    assert out["mode"] == "minor"
+
+
+def test_reconcile_rewrites_tonic_when_harmony_absent():
+    """Si la tonique harmonique est quasi absente de la mélodie, on bascule sur la
+    classe de hauteur dominante (garde-fou quand Krumhansl/accords se plantent)."""
+    key = _key("D", "major")  # tonique D totalement absente de la mélodie ci-dessous
+    notes = _notes({9: 50, 0: 20, 4: 30})  # A, C, E → Am
+    out = core.reconcile_key_with_melody(key, notes)
+    assert out["root"] == "A"
+    assert out["mode"] == "minor"
+
+
 def test_merge_grid_filters_short_segments():
     seq = [("Am", 0.9)] * 6 + [("F", 0.8)] * 1 + [("Am", 0.9)] * 6
     beat_times = np.arange(13) * 0.5

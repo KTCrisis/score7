@@ -48,8 +48,8 @@ score7_mcp/
 
 | Stage | Technique |
 |-------|-----------|
-| Tempo | madmom RNN+DBN beats if installed, else librosa; BPM = median inter-beat interval; octave candidates (T/2, T, 2T) exposed with tempogram strength |
-| Meter | madmom DBN downbeats (beats_per_bar 2–7) if installed, else accent-pattern folding on beat grid; binary/ternary subdivision names 6/8 and 12/8 |
+| Tempo | priority Beat This! (transformer, ISMIR 2024) > madmom (RNN+DBN) > librosa; BPM = median inter-beat interval; octave candidates (T/2, T, 2T) exposed with tempogram strength |
+| Meter | Beat This! / madmom downbeats (beats_per_bar) if installed, else accent-pattern folding on beat grid; binary/ternary subdivision names 6/8 and 12/8 |
 | Key | Krumhansl-Schmuckler (chroma CQT) **+ chord-function vote** **+ melody-tonic reconciliation** |
 | Chords | cosine template matching on beat-synced chroma CENS, merged segments |
 | Structure | per-window RMS + layer-onset detection (energy derivative) |
@@ -65,9 +65,16 @@ score7_mcp/
 
 Krumhansl alone confuses a key with its relative (same notes). The chord-function
 vote fixes most cases but inherits the chord detector's major/minor third errors on
-pads. The **reliable** discriminator is the melody tonic: when `--melody` runs,
-`core.reconcile_key_with_melody` sets the tonic to the most frequent melody pitch
-class and the mode from minor-third vs major-third presence above it.
+pads. The melody is the **reliable discriminator for the mode**, not the tonic: when
+`--melody` runs, `core.reconcile_key_with_melody` keeps the harmonic tonic (Krumhansl
++ chord vote) and only decides minor-third vs major-third above it. It rewrites the
+tonic toward the dominant melody pitch class **only** if the harmonic tonic is nearly
+absent from the melody (< 10 %), i.e. the harmony is clearly off.
+
+→ Why not "tonic = most frequent melody note": the fifth is often as frequent as the
+root (on Fm the C dominates), so that rule mislabels the tonic. Validated on Perturbator
+"Future Club": chords said F minor (correct per Tunebat/SongBPM), the old rule wrongly
+flipped it to C minor; the current rule keeps F minor.
 
 → For trustworthy mode on pad-heavy material, run with `--melody`.
 
