@@ -42,8 +42,8 @@ score7 track.flac --title my_title --separate --melody
 score7 track.flac --melody --melody-src stems/other.wav
 ```
 
-Output in `~/Renoise/analyses/` (or `--out`): a `.md` sheet, optional `.json`,
-stems, `<slug>_poly_full.mid`, `<slug>_melody.mid`.
+Output goes to `--out` if given, else `$SCORE7_OUT`, else `~/Renoise/analyses/`: a
+`.md` sheet, optional `.json`, stems, `<slug>_poly_full.mid`, `<slug>_melody.mid`.
 
 Tempo and meter are always estimated (no flag); when the tempo octave is ambiguous
 (confidence < 0.5), the sheet and console list the candidates with their strength.
