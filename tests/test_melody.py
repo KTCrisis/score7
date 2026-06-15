@@ -26,5 +26,21 @@ def test_melody_pesto_tracks_tone(tmp_path):
     assert all(n["dur"] >= 0.1 for n in notes)  # durée mini respectée
 
 
+def test_melody_pesto_short_clip_returns_empty(tmp_path):
+    """Un clip trop court pour PESTO retombe proprement sur [] au lieu de crasher
+    (la STFT interne de PESTO padde sur ~2048 samples)."""
+    pytest.importorskip("pesto")
+    import soundfile as sf
+
+    from score7_mcp import melody as mel
+
+    sr = 22050
+    y = (0.3 * np.sin(2 * np.pi * 220.0 * np.linspace(0, 0.03, int(sr * 0.03),
+                                                      endpoint=False))).astype(np.float32)
+    f = tmp_path / "tiny.wav"
+    sf.write(f, y, sr)
+    assert mel._melody_pesto(str(f)) == []
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

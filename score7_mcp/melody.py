@@ -92,9 +92,16 @@ def _melody_pesto(path: str, conf_pct: float = 60.0, min_dur: float = 0.1) -> li
     import torch
 
     y, sr = librosa.load(path, sr=None, mono=True)
+    if len(y) < sr * 0.25:  # PESTO padde sa STFT sur ~2048 samples : trop court = crash interne
+        return []
     ts, pitch, conf = (np.asarray(a) for a in pesto.predict(torch.from_numpy(y).float(), sr)[:3])
+    if len(ts) < 2:  # ceinture+bretelles si une version livrait <2 pas
+        return []
     midi = librosa.hz_to_midi(pitch)
-    dt = float(ts[1] - ts[0]) / (1000.0 if ts.max() > 100 else 1.0)  # ts en ms ou s
+    # PESTO échantillonne en ms ; on dérive le pas réel (≈10 ms) plutôt que de deviner sur
+    # ts.max() (qui casse sur un clip court). Robuste même si une version livrait déjà des s.
+    step = float(ts[1] - ts[0])
+    dt = step / 1000.0 if step > 1.0 else step
     thr = float(np.percentile(conf, conf_pct))
     notes, cur, start = [], None, 0
 
