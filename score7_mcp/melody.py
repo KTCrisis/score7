@@ -23,11 +23,16 @@ def _cuda() -> bool:
         return False
 
 
-def separate(path: str, outdir: str) -> str:
-    """Demucs → 4 stems (vocals/other/bass/drums). Renvoie le dossier des stems."""
-    print(f"→ Demucs (séparation) sur {Path(path).name}…", file=sys.stderr)
-    subprocess.run([sys.executable, "-m", "demucs", "-o", str(outdir), str(path)], check=True)
-    return str(Path(outdir) / "htdemucs" / Path(path).stem)
+def separate(path: str, outdir: str, model: str = "htdemucs") -> str:
+    """Demucs → stems. `model` choisit l'architecture : htdemucs (4 stems, défaut rapide),
+    htdemucs_ft (4 stems fine-tunés, ~2-4× plus lent), htdemucs_6s (6 stems, ajoute
+    guitar/piano — peu utile sur du synthé). Renvoie le dossier des stems.
+
+    Demucs écrit dans {outdir}/{model}/{nom}, donc le chemin de retour suit le modèle."""
+    print(f"→ Demucs ({model}) sur {Path(path).name}…", file=sys.stderr)
+    subprocess.run([sys.executable, "-m", "demucs", "-n", model, "-o", str(outdir), str(path)],
+                   check=True)
+    return str(Path(outdir) / model / Path(path).stem)
 
 
 def transcribe(path: str, out_midi: str) -> str:

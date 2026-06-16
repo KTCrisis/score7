@@ -75,18 +75,22 @@ def analyze_audio(
     title: str | None = None,
     out_dir: str | None = None,
     dl_chords: bool = True,
+    sep_model: str = "htdemucs",
 ) -> dict:
     """Analyse un fichier audio et renvoie tonalité, accords, structure, spectral, stéréo,
     loudness. `separate`=True ajoute les stems Demucs ; `melody`=True extrait la ligne
-    mélodique (utilise un stem isolé si séparé, sinon le mix). `dl_chords`=True (défaut)
+    mélodique (utilise un stem isolé si séparé, sinon le mix). `sep_model` choisit le modèle
+    de séparation : htdemucs (défaut), htdemucs_ft (plus lent, basse plus propre) ou
+    htdemucs_6s (6 stems, +guitar/piano — peu utile sur du synthé). `dl_chords`=True (défaut)
     reconnaît les accords par BTC (transformer) avec repli madmom puis template ; False =
     template chroma seul (rapide, sans GPU). Écrit une fiche markdown dans out_dir (défaut
-    ~/Renoise/analyses) sauf si write_fiche=False."""
+    ~/audio_analysis, surchargeable via SCORE7_OUT) sauf si write_fiche=False."""
     if not Path(file_path).expanduser().exists():
         return {"error": f"Fichier introuvable : {file_path}"}
     try:
         r = analyze_file(file_path, title=title, separate=separate, melody=melody,
-                         melody_src=melody_src, outdir=out_dir, dl_chords=dl_chords)
+                         melody_src=melody_src, outdir=out_dir, dl_chords=dl_chords,
+                         sep_model=sep_model)
     except ValueError as e:
         return {"error": str(e)}
     # échecs partiels (stems/mélodie) : promus en warnings pour qu'un client
@@ -108,16 +112,19 @@ def analyze_audio(
 
 
 @mcp.tool
-def separate_stems(file_path: str, out_dir: str | None = None) -> dict:
-    """Sépare un fichier audio en 4 stems (vocals/other/bass/drums) via Demucs.
-    Renvoie le dossier des stems. Nécessite l'extra [melody]."""
+def separate_stems(file_path: str, out_dir: str | None = None,
+                   sep_model: str = "htdemucs") -> dict:
+    """Sépare un fichier audio en stems via Demucs. `sep_model` : htdemucs (4 stems
+    vocals/other/bass/drums, défaut), htdemucs_ft (4 stems fine-tunés, plus lent) ou
+    htdemucs_6s (6 stems, +guitar/piano). Renvoie le dossier des stems. Nécessite l'extra [melody]."""
     if not Path(file_path).expanduser().exists():
         return {"error": f"Fichier introuvable : {file_path}"}
     from score7_mcp import melody as mel_mod
     outdir = str(Path(out_dir).expanduser()) if out_dir else str(Path.home() / "Renoise" / "analyses")
     Path(outdir).mkdir(parents=True, exist_ok=True)
     try:
-        return {"stems_dir": mel_mod.separate(str(Path(file_path).expanduser()), outdir)}
+        return {"stems_dir": mel_mod.separate(str(Path(file_path).expanduser()), outdir,
+                                              model=sep_model)}
     except Exception as e:
         return {"error": str(e)}
 

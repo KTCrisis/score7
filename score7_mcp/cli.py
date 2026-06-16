@@ -20,6 +20,10 @@ def main(argv=None):
     ap.add_argument("--title", default=None, help="titre + slug des fichiers de sortie")
     ap.add_argument("--json", action="store_true", help="écrit aussi un .json")
     ap.add_argument("--separate", action="store_true", help="séparation stems (Demucs)")
+    ap.add_argument("--sep-model", default="htdemucs",
+                    choices=["htdemucs", "htdemucs_ft", "htdemucs_6s"],
+                    help="modèle Demucs : htdemucs (défaut), htdemucs_ft (plus lent, basse "
+                         "plus propre), htdemucs_6s (6 stems, +guitar/piano)")
     ap.add_argument("--melody", action="store_true", help="extraction de la ligne mélodique")
     ap.add_argument("--melody-src", default=None, help="stem précis pour la mélodie")
     ap.add_argument("--no-dl-chords", dest="dl_chords", action="store_false",
@@ -33,7 +37,7 @@ def main(argv=None):
     try:
         r = analyze_file(args.file, sr=args.sr, title=args.title, separate=args.separate,
                          melody=args.melody, melody_src=args.melody_src, outdir=args.out,
-                         dl_chords=args.dl_chords)
+                         dl_chords=args.dl_chords, sep_model=args.sep_model)
     except ValueError as e:
         sys.exit(f"score7 : {e}")
 
