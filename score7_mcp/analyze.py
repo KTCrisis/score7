@@ -29,7 +29,7 @@ def _resolve_outdir(outdir: str | None = None) -> str:
 def analyze_file(path: str, sr: int = 22050, title: str | None = None,
                  separate: bool = False, melody: bool = False,
                  melody_src: str | None = None, outdir: str | None = None,
-                 dl_chords: bool = True) -> dict:
+                 dl_chords: bool = True, sep_model: str = "htdemucs") -> dict:
     """Analyse complète. `separate`/`melody` activent les étages lourds (extra [melody])."""
     path = str(Path(path).expanduser().resolve())
     title = title or Path(path).stem
@@ -84,7 +84,7 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
         from score7_mcp import melody as mel_mod
         if separate:
             try:
-                results["stems"] = mel_mod.separate(path, outdir)
+                results["stems"] = mel_mod.separate(path, outdir, model=sep_model)
             except Exception as e:
                 results["stems_error"] = str(e)
             # couche rythme + texture par stem (librosa seul, pas de GPU)

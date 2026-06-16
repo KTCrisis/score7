@@ -17,7 +17,7 @@ def _write_tone(path, seconds=2.0, sr=22050):
 
 
 def test_resolve_outdir_precedence(monkeypatch):
-    """Priorité : argument explicite > $SCORE7_OUT > défaut ~/Renoise/analyses."""
+    """Priorité : argument explicite > $SCORE7_OUT > défaut ~/audio_analysis."""
     from pathlib import Path
 
     monkeypatch.setenv("SCORE7_OUT", "/tmp/score7_env")
@@ -40,7 +40,7 @@ def test_separation_failure_surfaces_as_stems_error(tmp_path, monkeypatch):
 
     # stub du module melody : l'import réel tire torch/demucs (extra [melody])
     stub = types.ModuleType("score7_mcp.melody")
-    stub.separate = lambda path, outdir: (_ for _ in ()).throw(RuntimeError("demucs absent"))
+    stub.separate = lambda path, outdir, model="htdemucs": (_ for _ in ()).throw(RuntimeError("demucs absent"))
     monkeypatch.setitem(sys.modules, "score7_mcp.melody", stub)
 
     r = analyze_file(str(wav), separate=True, outdir=str(tmp_path))
