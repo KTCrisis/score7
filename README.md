@@ -39,8 +39,16 @@ cleanly to the librosa / Krumhansl / cosine methods.
 ```bash
 score7 track.flac --json
 score7 track.flac --title my_title --separate --melody
+score7 track.flac --separate --sep-model htdemucs_ft     # alternate Demucs model
 score7 track.flac --melody --melody-src stems/other.wav
 ```
+
+`--sep-model` picks the Demucs architecture: `htdemucs` (default, 4 stems, fast),
+`htdemucs_ft` (4 stems fine-tuned, cleaner bass/vocals, ~2-4x slower) or
+`htdemucs_6s` (6 stems, adds guitar/piano). On dense synth material the default is
+enough: `6s` leaves guitar/piano near-empty (synths stay in `other`) and `ft` only
+marginally improves `other`. Reserve `ft` for a clean bass, `6s` for acoustic
+multi-instrument mixes.
 
 Output goes to `--out` if given, else `$SCORE7_OUT`, else `~/audio_analysis/`: a
 `.md` sheet, optional `.json`, stems, `<slug>_poly_full.mid`, `<slug>_melody.mid`.
@@ -54,8 +62,8 @@ Tempo and meter are always estimated (no flag); when the tempo octave is ambiguo
 python -m score7_mcp        # run the server (stdio)
 ```
 
-Tools: `analyze_audio` (full analysis, `separate`/`melody` options) and
-`separate_stems`. Wired into flux7-mesh via:
+Tools: `analyze_audio` (full analysis, `separate`/`melody`/`sep_model` options) and
+`separate_stems` (also takes `sep_model`). Wired into flux7-mesh via:
 
 ```yaml
 - name: score7
@@ -100,7 +108,7 @@ Authors and papers for each model are in [Credits](#credits-and-references).
 | Key | genre-agnostic CNN first; else Krumhansl-Schmuckler (chroma CQT) + chord-function vote + melody-tonic reconciliation | **madmom CNN** > Krumhansl |
 | Chords | bidirectional transformer (large vocabulary: maj/min/7/sus/dim); else deep-chroma+CRF; else cosine template matching on beat-synced CENS chroma | **BTC** > madmom > cosine |
 | Melody | monophonic pitch tracking on an isolated stem (~10 ms); else poly transcription to skyline (C4-C6); else pYIN. Follows the dominant voice, does not separate melody from accompaniment | **PESTO** > skyline > pYIN |
-| Separation | hybrid spectro-temporal source separation (4 or 6 stems, piano included) | **Demucs** htdemucs |
+| Separation | hybrid spectro-temporal source separation; model selectable via `--sep-model` / `sep_model` (htdemucs 4-stem default, htdemucs_ft fine-tuned, htdemucs_6s 6-stem +guitar/piano) | **Demucs** htdemucs |
 | Per-stem rhythm | drum pattern (kick/snare/hats bands folded onto the beat grid), microtiming, swing | in-house (librosa/scipy) |
 | Per-stem texture | spectral flux, centroid variation, percussive ratio (HPSS), energy share, stereo width | in-house (librosa) |
 | Structure | per-window RMS + layer-onset detection (energy derivative) | in-house (librosa) |
