@@ -85,7 +85,48 @@ def _melody_pyin(path: str, sr: int = 22050, fmin="C3", fmax="C7", min_dur=0.1):
     return notes
 
 
-def _melody_pesto(path: str, conf_pct: float = 60.0, min_dur: float = 0.1) -> list:
+def _highpass(y, sr, fc: float = 180.0):
+    """Passe-haut avant suivi de f0. Sur un stem synthé, la pédale grave (bourdon
+    de tonique, basse résiduelle) domine la saillance et capture le tracker mono —
+    constaté sur du synthwave : 77 % des notes étaient la pédale. Couper sous
+    ~180 Hz sort le bourdon du champ, le tracker suit le registre mélodique."""
+    from scipy.signal import butter, sosfiltfilt
+    sos = butter(4, fc, btype="highpass", fs=sr, output="sos")
+    return sosfiltfilt(sos, y).astype(np.float32)
+
+
+def _merge_microgaps(notes: list, max_gap: float = 0.08) -> list:
+    """Fusionne les notes de même hauteur séparées par un micro-trou (<80 ms) :
+    le vacillement de saillance hachure une tenue en confettis, pas la musique."""
+    out = []
+    for n in notes:
+        prev = out[-1] if out else None
+        if (prev and n["pitch"] == prev["pitch"]
+                and 0 <= n["start"] - (prev["start"] + prev["dur"]) <= max_gap):
+            prev["dur"] = round(n["start"] + n["dur"] - prev["start"], 2)
+        else:
+            out.append(dict(n))
+    return out
+
+
+def _drop_outliers(notes: list, jump: int = 10, max_dur: float = 0.3) -> list:
+    """Éjecte les notes courtes isolées à plus de `jump` demi-tons de leurs DEUX
+    voisines : un flip de saillance entre octaves/voix, pas une note jouée."""
+    if len(notes) < 3:
+        return notes
+    keep = [notes[0]]
+    for prev, cur, nxt in zip(notes, notes[1:], notes[2:]):
+        if (cur["dur"] <= max_dur
+                and abs(cur["pitch"] - prev["pitch"]) > jump
+                and abs(cur["pitch"] - nxt["pitch"]) > jump):
+            continue
+        keep.append(cur)
+    keep.append(notes[-1])
+    return keep
+
+
+def _melody_pesto(path: str, conf_pct: float = 60.0, min_dur: float = 0.1,
+                  hp: float | None = 180.0) -> list:
     """Suivi de hauteur PESTO (transformer self-supervised, ISMIR 2023 ; extra [melody]).
     État de l'art du pitch monophonique : bien plus précis et pur que pYIN (résolution
     ~10 ms, quasi pas de notes hors-gamme). Comme tout pitch tracker mono, il suit la voix
@@ -99,6 +140,8 @@ def _melody_pesto(path: str, conf_pct: float = 60.0, min_dur: float = 0.1) -> li
     y, sr = librosa.load(path, sr=None, mono=True)
     if len(y) < sr * 0.25:  # PESTO padde sa STFT sur ~2048 samples : trop court = crash interne
         return []
+    if hp:
+        y = _highpass(y, sr, hp)
     ts, pitch, conf = (np.asarray(a) for a in pesto.predict(torch.from_numpy(y).float(), sr)[:3])
     if len(ts) < 2:  # ceinture+bretelles si une version livrait <2 pas
         return []
@@ -161,14 +204,18 @@ def _velocities(notes: list, y, sr, lo: int = 45, hi: int = 112) -> list:
     return notes
 
 
-def extract_melody(path: str, outdir: str, slug: str, band=(60, 84)) -> dict:
+def extract_melody(path: str, outdir: str, slug: str, band=(60, 84),
+                   bpm: float | None = None) -> dict:
     """Ligne mélodique → MIDI + séquence. Chaîne : PESTO (pitch mono, état de l'art) >
-    skyline (transcription poly) > pYIN. À lancer de préférence sur un stem isolé."""
+    skyline (transcription poly) > pYIN. À lancer de préférence sur un stem isolé.
+    `bpm` cale le plancher de durée sur le tempo (≈ double-croche) au lieu d'un
+    seuil en secondes — 0,1 s à 88 BPM laisse passer des confettis d'un 1/7 de beat."""
     import pretty_midi
     print(f"→ Extraction mélodie sur {Path(path).name}…", file=sys.stderr)
+    min_dur = max(0.1, 0.22 * 60.0 / bpm) if bpm else 0.1
     notes, method = None, None
     try:
-        notes = _melody_pesto(path)
+        notes = _melody_pesto(path, min_dur=min_dur)
         if not notes:
             raise ValueError("PESTO n'a renvoyé aucune note")
         method = "PESTO (pitch mono, ISMIR 2023)"
@@ -184,13 +231,16 @@ def extract_melody(path: str, outdir: str, slug: str, band=(60, 84)) -> dict:
             notes = _melody_pyin(path)
             method = "pYIN monophonique (fallback)"
 
-    # post-traitement sur le signal source : ré-articulation des notes répétées
-    # (segmentation f0 seulement — skyline vient d'une transcription déjà articulée)
-    # + vélocités réelles depuis l'enveloppe RMS
+    # post-traitement sur le signal source. Ordre : recoller les confettis
+    # (micro-trous de même hauteur), éjecter les flips de saillance isolés,
+    # PUIS ré-articuler les vraies répétitions aux onsets (f0 seulement —
+    # skyline vient d'une transcription déjà articulée), enfin les nuances RMS.
     try:
         y_src, sr_src = librosa.load(path, sr=22050, mono=True)
         if method and method.startswith(("PESTO", "pYIN")):
-            notes = _split_at_onsets(notes, y_src, sr_src)
+            notes = _merge_microgaps(notes)
+            notes = _drop_outliers(notes)
+            notes = _split_at_onsets(notes, y_src, sr_src, min_dur=min_dur)
         notes = _velocities(notes, y_src, sr_src)
     except Exception as e:
         print(f"  post-traitement mélodie ignoré ({e})", file=sys.stderr)

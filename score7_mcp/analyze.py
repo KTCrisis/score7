@@ -112,7 +112,8 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
                         src = str(stems / cand); break
             src = src or path
             try:
-                results["melody"] = mel_mod.extract_melody(src, outdir, slug)
+                results["melody"] = mel_mod.extract_melody(src, outdir, slug,
+                                                           bpm=tempo["bpm"])
                 results["melody"]["source"] = src
                 # reconcile_key_with_melody no-op de lui-même sur une clé CNN (mode déjà fiable)
                 results["key"] = core.reconcile_key_with_melody(

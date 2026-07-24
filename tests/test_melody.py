@@ -83,3 +83,22 @@ def test_velocities_follow_dynamics():
     out = mel._velocities(notes, y, sr)
     assert out[0]["vel"] < out[1]["vel"]
     assert all(45 <= n["vel"] <= 112 for n in out)
+
+
+def test_merge_microgaps_and_drop_outliers():
+    """Confettis de même hauteur recollés ; flip de saillance isolé éjecté ;
+    les vraies notes voisines survivent."""
+    from score7_mcp import melody as mel
+
+    confetti = [{"pitch": 67, "start": 0.0, "dur": 0.15, "name": "G4"},
+                {"pitch": 67, "start": 0.18, "dur": 0.2, "name": "G4"},   # trou 30 ms -> fusion
+                {"pitch": 67, "start": 0.6, "dur": 0.3, "name": "G4"}]    # trou 220 ms -> séparé
+    merged = mel._merge_microgaps(confetti)
+    assert len(merged) == 2 and merged[0]["dur"] == 0.38
+
+    line = [{"pitch": 67, "start": 0.0, "dur": 0.4, "name": "G4"},
+            {"pitch": 43, "start": 0.4, "dur": 0.1, "name": "G2"},   # flip -24 st, court -> éjecté
+            {"pitch": 69, "start": 0.5, "dur": 0.4, "name": "A4"},
+            {"pitch": 72, "start": 0.9, "dur": 0.2, "name": "C5"}]   # saut normal -> gardé
+    kept = mel._drop_outliers(line)
+    assert [n["pitch"] for n in kept] == [67, 69, 72]
