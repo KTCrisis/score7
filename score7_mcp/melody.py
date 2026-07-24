@@ -125,6 +125,42 @@ def _melody_pesto(path: str, conf_pct: float = 60.0, min_dur: float = 0.1) -> li
     return notes
 
 
+def _split_at_onsets(notes: list, y, sr, min_dur: float = 0.1) -> list:
+    """Re-articule les notes répétées. La segmentation f0 (PESTO/pYIN) ne coupe
+    que sur CHANGEMENT de hauteur : deux croches répétées deviennent une blanche.
+    Les onsets du signal (attaques) coupent les tenues au bon endroit ; une coupe
+    n'est posée que si les deux segments restent >= min_dur."""
+    onset_t = librosa.onset.onset_detect(y=y, sr=sr, units="time", backtrack=True)
+    out = []
+    for n in notes:
+        end = n["start"] + n["dur"]
+        seg = n["start"]
+        for c in onset_t:
+            if seg + min_dur <= c <= end - min_dur:
+                out.append({**n, "start": round(seg, 2), "dur": round(float(c - seg), 2)})
+                seg = float(c)
+        out.append({**n, "start": round(seg, 2), "dur": round(end - seg, 2)})
+    return out
+
+
+def _velocities(notes: list, y, sr, lo: int = 45, hi: int = 112) -> list:
+    """Vélocité par note depuis l'enveloppe RMS à l'onset, normalisée sur les
+    percentiles 10/95 du morceau (robuste au mastering). Sans elle tout sort à
+    vélocité fixe — ni le MIDI ni la partition ne portent de nuances."""
+    rms = librosa.feature.rms(y=y)[0]
+    if not len(rms):
+        return notes
+    t_rms = librosa.times_like(rms, sr=sr)
+    db = librosa.amplitude_to_db(rms + 1e-9)
+    p10, p95 = np.percentile(db, 10), np.percentile(db, 95)
+    span = max(p95 - p10, 1e-6)
+    for n in notes:
+        v = float(np.interp(n["start"], t_rms, db))
+        x = min(1.0, max(0.0, (v - p10) / span))
+        n["vel"] = int(round(lo + x * (hi - lo)))
+    return notes
+
+
 def extract_melody(path: str, outdir: str, slug: str, band=(60, 84)) -> dict:
     """Ligne mélodique → MIDI + séquence. Chaîne : PESTO (pitch mono, état de l'art) >
     skyline (transcription poly) > pYIN. À lancer de préférence sur un stem isolé."""
@@ -148,10 +184,21 @@ def extract_melody(path: str, outdir: str, slug: str, band=(60, 84)) -> dict:
             notes = _melody_pyin(path)
             method = "pYIN monophonique (fallback)"
 
+    # post-traitement sur le signal source : ré-articulation des notes répétées
+    # (segmentation f0 seulement — skyline vient d'une transcription déjà articulée)
+    # + vélocités réelles depuis l'enveloppe RMS
+    try:
+        y_src, sr_src = librosa.load(path, sr=22050, mono=True)
+        if method and method.startswith(("PESTO", "pYIN")):
+            notes = _split_at_onsets(notes, y_src, sr_src)
+        notes = _velocities(notes, y_src, sr_src)
+    except Exception as e:
+        print(f"  post-traitement mélodie ignoré ({e})", file=sys.stderr)
+
     pm = pretty_midi.PrettyMIDI()
     inst = pretty_midi.Instrument(program=0, name="melody")
     for n in notes:
-        inst.notes.append(pretty_midi.Note(velocity=90, pitch=n["pitch"],
+        inst.notes.append(pretty_midi.Note(velocity=n.get("vel", 90), pitch=n["pitch"],
                                             start=n["start"], end=n["start"] + max(n["dur"], 0.05)))
     pm.instruments.append(inst)
     midi_path = str(Path(outdir) / f"{slug}_melody.mid")

@@ -74,6 +74,13 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
         "title": title, "slug": slug, "file": path, "outdir": outdir,
         "bpm": tempo["bpm"], "tempo": tempo, "meter": meter, "key": key, "chords": chords,
         "key_source": key.get("source"), "chords_source": chords_source,
+        # La grille de beats RÉELLE (beat_this/madmom/librosa) : c'est le référentiel
+        # des start_beat d'accords. Exportée pour que les consommateurs (flux7-audio)
+        # convertissent les temps en secondes (mélodie) sur la MÊME grille — un
+        # simple ×bpm/60 dérive dès que le tempo n'est pas machine ou que le
+        # premier beat n'est pas à t=0.
+        "rhythm": {"beat_times": [round(float(t), 4) for t in beat_times],
+                   "beats_per_bar": (meter or {}).get("beats_per_bar")},
         "structure": core.dynamic_structure(y, sr),
         "spectral": core.spectral_profile(y, sr),
         "stereo": core.stereo_width(y_stereo),

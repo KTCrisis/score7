@@ -44,3 +44,42 @@ def test_melody_pesto_short_clip_returns_empty(tmp_path):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_split_at_onsets_rearticulates_repeated_notes(tmp_path):
+    """Deux attaques de la même hauteur séparées par un silence : la segmentation
+    f0 n'y voit qu'une note ; les onsets du signal doivent la couper en deux."""
+    import librosa  # noqa: F401 — dépendance cœur, pas d'extra
+
+    from score7_mcp import melody as mel
+
+    sr = 22050
+    t1 = np.linspace(0, 0.4, int(sr * 0.4), endpoint=False)
+    burst = (0.5 * np.sin(2 * np.pi * 220.0 * t1) * np.hanning(len(t1))).astype(np.float32)
+    gap = np.zeros(int(sr * 0.1), dtype=np.float32)
+    y = np.concatenate([burst, gap, burst])
+
+    notes = [{"pitch": 57, "start": 0.0, "dur": 0.9, "name": "A3"}]
+    out = mel._split_at_onsets(notes, y, sr)
+    assert len(out) == 2, f"attendu 2 notes après ré-articulation, obtenu {len(out)}"
+    assert out[0]["start"] == 0.0
+    assert 0.35 <= out[1]["start"] <= 0.65  # la coupe tombe sur la 2e attaque
+    assert all(n["dur"] >= 0.1 for n in out)
+
+
+def test_velocities_follow_dynamics():
+    """Une note dans la partie faible du signal reçoit une vélocité plus basse
+    qu'une note dans la partie forte ; bornes [45, 112] respectées."""
+    from score7_mcp import melody as mel
+
+    sr = 22050
+    t = np.linspace(0, 1.0, sr, endpoint=False)
+    soft = 0.05 * np.sin(2 * np.pi * 220.0 * t)
+    loud = 0.8 * np.sin(2 * np.pi * 220.0 * t)
+    y = np.concatenate([soft, loud]).astype(np.float32)
+
+    notes = [{"pitch": 57, "start": 0.3, "dur": 0.3, "name": "A3"},
+             {"pitch": 57, "start": 1.3, "dur": 0.3, "name": "A3"}]
+    out = mel._velocities(notes, y, sr)
+    assert out[0]["vel"] < out[1]["vel"]
+    assert all(45 <= n["vel"] <= 112 for n in out)
