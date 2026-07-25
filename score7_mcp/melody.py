@@ -204,8 +204,68 @@ def _velocities(notes: list, y, sr, lo: int = 45, hi: int = 112) -> list:
     return notes
 
 
+def _melody_basic_pitch(path: str, min_amp: float = 0.15, min_dur: float = 0.1) -> list:
+    """Transcription polyphonique basic-pitch (Spotify, ICASSP 2022, backend ONNX).
+    Entend TOUTES les notes du stem — c'est la sonde ET la transcription du
+    matériau polyphonique. `amp` (0-1) est conservé pour les vélocités."""
+    import pretty_midi
+    from basic_pitch.inference import predict
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+    _, _, events = predict(str(path), ICASSP_2022_MODEL_PATH)
+    notes = []
+    for s, e, p, a, _bends in events:
+        if a < min_amp or (e - s) < min_dur:
+            continue
+        notes.append({"pitch": int(p), "start": round(float(s), 2),
+                      "dur": round(float(e - s), 2), "amp": float(a),
+                      "name": pretty_midi.note_number_to_name(int(p))})
+    return sorted(notes, key=lambda n: (n["start"], -n["pitch"]))
+
+
+def _mean_polyphony(notes: list) -> float:
+    """Notes simultanées moyennes, échantillonnées juste après chaque onset.
+    C'est LE critère d'aiguillage : <=1.2 -> matériau mono (PESTO, plus précis) ;
+    au-delà -> polyphonique (skyline sur basic-pitch)."""
+    if not notes:
+        return 0.0
+    total = 0
+    for n in notes:
+        t = n["start"] + 0.01
+        total += sum(1 for m in notes if m["start"] <= t < m["start"] + m["dur"])
+    return total / len(notes)
+
+
+def _split_voices(notes: list) -> tuple[list, list]:
+    """Skyline : à chaque instant, la note la plus haute qui sonne = la ligne ;
+    tout ce qui sonne SOUS une note plus haute = accompagnement (arpèges, nappes).
+    Sur du matériau à voix entrelacées, une voix seule n'est pas le morceau —
+    les deux parts gardent le tissage entier."""
+    line, acc = [], []
+    for n in notes:
+        covered = any(m["pitch"] > n["pitch"]
+                      and m["start"] < n["start"] + n["dur"] - 0.02
+                      and m["start"] + m["dur"] > n["start"] + 0.02
+                      for m in notes if m is not n)
+        (acc if covered else line).append(n)
+    return line, acc
+
+
+def _amp_velocities(notes: list, lo: int = 45, hi: int = 112) -> list:
+    """Vélocités depuis l'amplitude basic-pitch, normalisée percentiles 10/95."""
+    if not notes:
+        return notes
+    amps = sorted(n["amp"] for n in notes)
+    p10 = amps[max(0, int(0.10 * len(amps)) - 1)]
+    p95 = amps[min(len(amps) - 1, int(0.95 * len(amps)))]
+    span = max(p95 - p10, 1e-6)
+    for n in notes:
+        x = min(1.0, max(0.0, (n["amp"] - p10) / span))
+        n["vel"] = int(round(lo + x * (hi - lo)))
+    return notes
+
+
 def extract_melody(path: str, outdir: str, slug: str, band=(60, 84),
-                   bpm: float | None = None) -> dict:
+                   bpm: float | None = None, poly_threshold: float = 1.2) -> dict:
     """Ligne mélodique → MIDI + séquence. Chaîne : PESTO (pitch mono, état de l'art) >
     skyline (transcription poly) > pYIN. À lancer de préférence sur un stem isolé.
     `bpm` cale le plancher de durée sur le tempo (≈ double-croche) au lieu d'un
@@ -213,50 +273,83 @@ def extract_melody(path: str, outdir: str, slug: str, band=(60, 84),
     import pretty_midi
     print(f"→ Extraction mélodie sur {Path(path).name}…", file=sys.stderr)
     min_dur = max(0.1, 0.22 * 60.0 / bpm) if bpm else 0.1
-    notes, method = None, None
+    notes, method, voices, poly = None, None, None, None
+
+    # Sonde polyphonique : basic-pitch (~5 s en ONNX) entend TOUTES les notes.
+    # Sa mesure arbitre : matériau mono -> PESTO (plus précis sur une voix) ;
+    # poly -> skyline sur ses propres notes, en deux voix (ligne / arpèges).
     try:
-        notes = _melody_pesto(path, min_dur=min_dur)
-        if not notes:
-            raise ValueError("PESTO n'a renvoyé aucune note")
-        method = "PESTO (pitch mono, ISMIR 2023)"
+        bp = _melody_basic_pitch(path, min_dur=min_dur)
+        if bp:
+            poly = _mean_polyphony(bp)
+            print(f"  polyphonie mesurée : {poly:.2f} "
+                  f"({'poly' if poly > poly_threshold else 'mono'})", file=sys.stderr)
+            if poly > poly_threshold:
+                line, acc = _split_voices(bp)
+                line = _drop_outliers(_merge_microgaps(line))
+                acc = _merge_microgaps(acc)
+                _amp_velocities(line)
+                _amp_velocities(acc)
+                notes = line
+                voices = [{"name": "ligne", "notes": line},
+                          {"name": "arpèges", "notes": acc}]
+                method = f"basic-pitch + skyline (polyphonie {poly:.1f})"
     except Exception as e:
-        print(f"  PESTO indisponible ({e}) → skyline", file=sys.stderr)
+        print(f"  basic-pitch indisponible ({e}) → chaîne mono", file=sys.stderr)
+
+    if notes is None:
         try:
-            full = str(Path(outdir) / f"{slug}_poly_full.mid")
-            transcribe(path, full)
-            notes = _skyline(full, lo=band[0], hi=band[1])
-            method = "skyline (transcription poly)"
-        except Exception as e2:
-            print(f"  transcription poly indisponible ({e2}) → fallback pYIN", file=sys.stderr)
-            notes = _melody_pyin(path)
-            method = "pYIN monophonique (fallback)"
+            notes = _melody_pesto(path, min_dur=min_dur)
+            if not notes:
+                raise ValueError("PESTO n'a renvoyé aucune note")
+            method = "PESTO (pitch mono, ISMIR 2023)"
+        except Exception as e:
+            print(f"  PESTO indisponible ({e}) → skyline", file=sys.stderr)
+            try:
+                full = str(Path(outdir) / f"{slug}_poly_full.mid")
+                transcribe(path, full)
+                notes = _skyline(full, lo=band[0], hi=band[1])
+                method = "skyline (transcription poly)"
+            except Exception as e2:
+                print(f"  transcription poly indisponible ({e2}) → fallback pYIN", file=sys.stderr)
+                notes = _melody_pyin(path)
+                method = "pYIN monophonique (fallback)"
 
     # post-traitement sur le signal source. Ordre : recoller les confettis
     # (micro-trous de même hauteur), éjecter les flips de saillance isolés,
     # PUIS ré-articuler les vraies répétitions aux onsets (f0 seulement —
     # skyline vient d'une transcription déjà articulée), enfin les nuances RMS.
+    # Le chemin basic-pitch porte déjà ses vélocités (amplitude par note).
     try:
-        y_src, sr_src = librosa.load(path, sr=22050, mono=True)
         if method and method.startswith(("PESTO", "pYIN")):
+            y_src, sr_src = librosa.load(path, sr=22050, mono=True)
             notes = _merge_microgaps(notes)
             notes = _drop_outliers(notes)
             notes = _split_at_onsets(notes, y_src, sr_src, min_dur=min_dur)
-        notes = _velocities(notes, y_src, sr_src)
+            notes = _velocities(notes, y_src, sr_src)
+        elif not voices:
+            y_src, sr_src = librosa.load(path, sr=22050, mono=True)
+            notes = _velocities(notes, y_src, sr_src)
     except Exception as e:
         print(f"  post-traitement mélodie ignoré ({e})", file=sys.stderr)
 
     pm = pretty_midi.PrettyMIDI()
-    inst = pretty_midi.Instrument(program=0, name="melody")
-    for n in notes:
-        inst.notes.append(pretty_midi.Note(velocity=n.get("vel", 90), pitch=n["pitch"],
-                                            start=n["start"], end=n["start"] + max(n["dur"], 0.05)))
-    pm.instruments.append(inst)
+    for v in (voices or [{"name": "melody", "notes": notes}]):
+        inst = pretty_midi.Instrument(program=0, name=v["name"])
+        for n in v["notes"]:
+            inst.notes.append(pretty_midi.Note(velocity=n.get("vel", 90), pitch=n["pitch"],
+                                                start=n["start"], end=n["start"] + max(n["dur"], 0.05)))
+        pm.instruments.append(inst)
     midi_path = str(Path(outdir) / f"{slug}_melody.mid")
     pm.write(midi_path)
 
-    # diagnostic : classes de hauteur (sert à vérifier la gamme)
+    # diagnostic : classes de hauteur (sert à vérifier la gamme) — sur la ligne
     from collections import Counter
     pcs = Counter(pretty_midi.note_number_to_name(n["pitch"] % 12 + 60)[:-1] for n in notes)
-    return {"midi": midi_path, "notes": notes, "n_notes": len(notes), "method": method,
-            "sequence": " ".join(n["name"] for n in notes),
-            "pitch_classes": dict(sorted(pcs.items(), key=lambda kv: -kv[1]))}
+    out = {"midi": midi_path, "notes": notes, "n_notes": len(notes), "method": method,
+           "sequence": " ".join(n["name"] for n in notes),
+           "pitch_classes": dict(sorted(pcs.items(), key=lambda kv: -kv[1]))}
+    if voices:
+        out["voices"] = voices
+        out["polyphony"] = round(poly, 2)
+    return out
