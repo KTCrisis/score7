@@ -128,6 +128,50 @@ transcription that is already articulated. Velocities come last, from real RMS o
 from basic-pitch amplitude, normalised on the 10th/95th percentiles into 45-112,
 so a MIDI export carries dynamics instead of the flat fallback.
 
+### Key, meter, chords: the arbitrations
+
+Where several signals disagree, score7 does not average them: it decides which
+one is competent for which question, and says so in the JSON.
+
+**Key.** The chord vote carries the same weight as the Krumhansl correlation,
+because chroma alone cannot separate a major key from its relative minor (same
+notes, different function) whereas the chords state the function. When a melody
+is available it arbitrates the **mode** only: the third above the tonic is read
+directly, so minor and major stop being a matter of correlation. It is not
+allowed to move the **tonic**, because a melody is a poor witness there (on Fm
+the fifth is often as frequent as the root, so C would win over F). The tonic is
+overridden only when the harmonic one is nearly absent from the melody, under
+10% of its weight, which means the harmonic analysis is plainly off. And when the
+key comes from the madmom CNN, the melody does not touch it at all: an
+authoritative detector is not corrected by a weaker signal. The JSON keeps
+`krumhansl_only` and `corrected` so the correction can be audited rather than
+trusted.
+
+**Meter.** The binary/ternary decision is deliberately biased toward binary:
+ternary wins only above 1.1 times the binary strength, and only if the
+subdivision carries real energy (without that guard, two flavours of noise get
+compared). A wrongly ternary reading changes how the whole piece is written down,
+so the bias is toward the more common case.
+
+**Chords.** The published grid is already smoothed: segments shorter than two
+beats are dropped, unless dropping them would empty the grid, in which case the
+raw segmentation is kept. Comparing two analyses means comparing two grids
+filtered the same way.
+
+**Structure.** `coarse` is eight windows of **equal duration**, not musical
+sections: it reports how energy is distributed over time, nothing more. The
+musical information sits in `layer_onsets`, where a layer entering is detected as
+an RMS derivative above 2.5 standard deviations, ignoring the first second,
+keeping onsets at least 3 s apart, capped at twelve.
+
+**Drums.** Bands are fixed at 20-150 Hz (kick), 150-2000 Hz (snare) and above
+6000 Hz (hats); the printed grid marks a step `X` above 0.5 and `x` above 0.2 of
+the maximum. Swing is reported both raw (0.5 is straight, 0.667 is triplet) and
+as a percentage between those two bounds.
+
+The sound layer needs none of this: centroid, 85% rolloff, BS.1770 loudness and
+crest factor are definitions, not arbitrations.
+
 ## MCP
 
 ```bash
