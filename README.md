@@ -50,8 +50,29 @@ enough: `6s` leaves guitar/piano near-empty (synths stay in `other`) and `ft` on
 marginally improves `other`. Reserve `ft` for a clean bass, `6s` for acoustic
 multi-instrument mixes.
 
+### Harmony is read on the stems, not on the mix
+
+With `--separate`, separation now runs **before** key and chord detection, and
+those read a reconstructed *harmonic mix* (`bass + piano + guitar + other`)
+instead of the full track.
+
+Drums are the most direct noise one can feed a chord detector: a cymbal spreads
+energy across all twelve pitch classes and a chroma cannot tell it from a
+cluster. Vocals are dropped too, since they carry the melody rather than the
+harmony, and their vibrato smears the chroma around the intended note.
+
+The bass is the decisive one. Two relative triads share two notes out of three;
+only the root separates them, and the bass is what states it. Without it a
+detector confuses a chord with its inversion and a major with its relative minor.
+
+`harmony_source` in the JSON says which was used, `harmonic_stems` or `mix`: two
+analyses of the same track are only comparable when it matches. Separation
+failing degrades the analysis back to the mix, it never breaks it, and Demucs
+still runs only once.
+
 Output goes to `--out` if given, else `$SCORE7_OUT`, else `~/audio_analysis/`: a
-`.md` sheet, optional `.json`, stems, `<slug>_poly_full.mid`, `<slug>_melody.mid`.
+`.md` sheet, optional `.json`, stems, `<slug>.harmonic.wav`,
+`<slug>_poly_full.mid`, `<slug>_melody.mid`.
 
 Tempo and meter are always estimated (no flag); when the tempo octave is ambiguous
 (confidence < 0.5), the sheet and console list the candidates with their strength.
