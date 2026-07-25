@@ -85,6 +85,49 @@ heuristic guessing. Downstream consumers get the disagreement stated instead of
 buried in a list, and a doubled tempo means harmonic durations are expressed in
 that subdivision, not in quarter notes.
 
+### Melody: what gets filtered, and why
+
+A pitch tracker returns a curve, not a melody. Turning one into the other takes a
+handful of decisions, and every threshold below was set against a real track
+rather than picked as a round number. They are stated here because two analyses
+are only comparable when the filtering behind them is the same.
+
+**The route is measured, not assumed.** basic-pitch (~5 s on the ONNX backend)
+transcribes every note it hears, and its mean polyphony decides what follows: at
+or below 1.2 the material is monophonic and PESTO takes over, being more accurate
+on a single voice; above it, the skyline of basic-pitch's own notes is used and
+split into two parts, `ligne` (the highest note sounding at any instant) and
+`arpèges` (everything covered by a higher one). The second part matters on
+interlocking material, where one voice alone is not the piece. Note that the
+split is geometric: score7 follows the dominant voice, it does not separate
+melody from accompaniment in the musical sense.
+
+**A high-pass at 180 Hz precedes f0 tracking.** On a synth stem the low pedal (a
+tonic drone, residual bass) dominates salience and captures a monophonic tracker:
+on synthwave material, 77% of the returned notes were the pedal. Cutting below
+~180 Hz takes the drone out of the running.
+
+**The duration floor follows the tempo**, at roughly a sixteenth (`0.22 * 60 /
+bpm`), not a fixed number of seconds. A flat 0.1 s means one seventh of a beat at
+88 BPM, which lets confetti through where a musical floor would not.
+
+**The level floor sits 18 dB below the body of the track.** Below it nothing is
+transcribed, because a fade tail is reverberation rather than played music. The
+figure is a compromise measured on *A Midsummer Nice Dream*, whose fade crosses
+-20 dB around 140 s (where transcription starts inventing) while its genuinely
+quiet passages live at -7 dB: low enough to spare those, high enough to cut the
+tail. The console reports how many notes were dropped.
+
+**Cleanup runs in a fixed order, and the order is not interchangeable.** Same-pitch
+notes separated by less than 80 ms are merged first, since salience flicker
+shreds a held note into confetti rather than into music. Short notes (under
+300 ms) more than ten semitones from *both* neighbours are dropped next, being
+octave or voice flips rather than played notes. Only then are true repetitions
+re-articulated at onsets, and only on the f0 path: skyline notes come from a
+transcription that is already articulated. Velocities come last, from real RMS or
+from basic-pitch amplitude, normalised on the 10th/95th percentiles into 45-112,
+so a MIDI export carries dynamics instead of the flat fallback.
+
 ## MCP
 
 ```bash
