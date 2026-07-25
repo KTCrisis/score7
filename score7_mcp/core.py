@@ -55,6 +55,12 @@ def _tempogram_strengths(oenv, sr, bpms, hop_length=512):
     return [float(glob[int(np.argmin(np.abs(freqs - b)))]) for b in bpms]
 
 
+#: en deçà, l'octave du tempo n'est pas tranchée par le tempogramme
+_OCTAVE_CONFIDENCE = 0.5
+#: écart de force à partir duquel un autre candidat mérite d'être signalé
+_OCTAVE_MARGIN = 0.01
+
+
 def _octave_candidates(oenv, sr, bpm):
     """Candidats d'octave (T/2, T, 2T) avec leur part de force tempogramme.
     L'autocorrélation d'onsets ne distingue pas un tempo de son double/moitié —
@@ -65,6 +71,34 @@ def _octave_candidates(oenv, sr, bpm):
     out = [{"bpm": round(b, 1), "strength": round(s / total, 3)}
            for b, s in zip(cands, strengths)]
     return out, out[1]["strength"]
+
+
+def _disputed_octave(candidates, confidence):
+    """Le tempo retenu est-il CONTREDIT par ses propres candidats ?
+
+    Le cas ne se voyait pas : sur « A Midsummer Nice Dream » le tempo sortait à
+    230,8 alors que 115,4 était le candidat le plus fort (0,397 contre 0,375) et
+    la confiance à 0,375, sous le seuil d'ambiguïté. L'information était dans le
+    JSON, mais dispersée dans une liste que personne ne relisait.
+
+    On ne CORRIGE pas : diviser le bpm sans décimer `beat_times` casserait la
+    cohérence de la grille, et décimer suppose de savoir quel beat sur deux est
+    la noire — ce que le tempogramme ne dit pas. Un tracker entraîné qui se
+    trompe d'octave reste plus fiable qu'une heuristique qui devine. On rend
+    donc le désaccord explicite et exploitable en aval.
+    """
+    if confidence >= _OCTAVE_CONFIDENCE or len(candidates) < 2:
+        return None
+    retenu = candidates[1]
+    meilleur = max(candidates, key=lambda c: c["strength"])
+    if meilleur is retenu or meilleur["strength"] <= retenu["strength"] + _OCTAVE_MARGIN:
+        return None
+    return {
+        "kept": retenu["bpm"], "suggested": meilleur["bpm"],
+        "kept_strength": retenu["strength"], "suggested_strength": meilleur["strength"],
+        "note": ("le tempogramme préfère un autre multiple ; les durées harmoniques "
+                 "sont alors exprimées dans cette subdivision, pas en noires"),
+    }
 
 
 def estimate_tempo(y, sr, oenv=None):
@@ -83,6 +117,9 @@ def estimate_tempo(y, sr, oenv=None):
     candidates, confidence = _octave_candidates(oenv, sr, bpm)
     info = {"bpm": round(bpm, 1), "bpm_candidates": candidates,
             "bpm_confidence": confidence, "source": "librosa"}
+    disputed = _disputed_octave(candidates, confidence)
+    if disputed:
+        info["bpm_disputed"] = disputed
     return info, beats, beat_times
 
 
@@ -213,6 +250,9 @@ def _apply_external_rhythm(y, sr, ext, meter_fallback, oenv):
     sub = _subdivision(oenv, sr, ext["bpm"])
     tempo = {"bpm": ext["bpm"], "bpm_candidates": candidates,
              "bpm_confidence": confidence, "source": ext["source"]}
+    disputed = _disputed_octave(candidates, confidence)
+    if disputed:
+        tempo["bpm_disputed"] = disputed
     bpb = ext.get("beats_per_bar")
     if bpb:
         meter = {"meter": _meter_name(bpb, sub), "beats_per_bar": bpb,

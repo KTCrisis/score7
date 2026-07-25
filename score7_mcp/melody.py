@@ -204,21 +204,81 @@ def _velocities(notes: list, y, sr, lo: int = 45, hi: int = 112) -> list:
     return notes
 
 
-def _melody_basic_pitch(path: str, min_amp: float = 0.15, min_dur: float = 0.1) -> list:
+#: sous ce niveau, relatif au corps du morceau, on ne transcrit plus
+_QUIET_FLOOR_DB = 28.0
+#: fenêtre du profil de niveau, en secondes
+_LEVEL_WIN = 1.0
+
+
+def _quiet_spans(path: str, floor_db: float = _QUIET_FLOOR_DB) -> list[tuple[float, float]]:
+    """Plages où le signal est trop bas pour être transcrit honnêtement.
+
+    Constaté sur « A Midsummer Nice Dream » : dans le fondu final, à 14 dB sous
+    le corps du morceau, basic-pitch produisait 2,7 fois PLUS d'onsets qu'au
+    plus fort — il transcrivait la queue de réverbération. La couverture
+    accord/notes tombait de 0,79 à 0,51 et ce n'était pas le détecteur
+    d'accords qui décrochait, mais la transcription qui hallucinait.
+
+    Le seuil est relatif au 90e centile du morceau, pas absolu : un morceau
+    entier joué doux ne doit pas disparaître.
+    """
+    import librosa
+    y, sr = librosa.load(str(path), sr=None, mono=True)
+    if y.size == 0:
+        return []
+    hop = max(1, int(sr * _LEVEL_WIN / 4))
+    rms = librosa.feature.rms(y=y, frame_length=hop * 4, hop_length=hop)[0]
+    if rms.size == 0:
+        return []
+    ref = float(np.percentile(rms, 90))
+    if ref <= 0:
+        return []
+    db = 20 * np.log10(np.maximum(rms, 1e-10) / ref)
+    times = librosa.frames_to_time(np.arange(len(db)), sr=sr, hop_length=hop)
+
+    spans, start = [], None
+    for t, d in zip(times, db):
+        if d < -floor_db and start is None:
+            start = float(t)
+        elif d >= -floor_db and start is not None:
+            spans.append((start, float(t)))
+            start = None
+    if start is not None:
+        spans.append((start, float(times[-1]) + _LEVEL_WIN))
+    return spans
+
+
+def _melody_basic_pitch(path: str, min_amp: float = 0.15, min_dur: float = 0.1,
+                        drop_quiet: bool = True) -> list:
     """Transcription polyphonique basic-pitch (Spotify, ICASSP 2022, backend ONNX).
     Entend TOUTES les notes du stem — c'est la sonde ET la transcription du
-    matériau polyphonique. `amp` (0-1) est conservé pour les vélocités."""
+    matériau polyphonique. `amp` (0-1) est conservé pour les vélocités.
+
+    `drop_quiet` écarte ce qui est transcrit dans les plages trop basses : la
+    réverbération d'un fondu n'est pas de la musique jouée.
+    """
     import pretty_midi
     from basic_pitch.inference import predict
     from basic_pitch import ICASSP_2022_MODEL_PATH
     _, _, events = predict(str(path), ICASSP_2022_MODEL_PATH)
-    notes = []
+
+    quiet = _quiet_spans(path) if drop_quiet else []
+    def in_quiet(t: float) -> bool:
+        return any(a <= t < b for a, b in quiet)
+
+    notes, dropped = [], 0
     for s, e, p, a, _bends in events:
         if a < min_amp or (e - s) < min_dur:
+            continue
+        if in_quiet(float(s)):
+            dropped += 1
             continue
         notes.append({"pitch": int(p), "start": round(float(s), 2),
                       "dur": round(float(e - s), 2), "amp": float(a),
                       "name": pretty_midi.note_number_to_name(int(p))})
+    if dropped:
+        print(f"  {dropped} notes écartées sous le plancher de niveau "
+              f"({len(quiet)} plage(s) basse(s))", file=sys.stderr)
     return sorted(notes, key=lambda n: (n["start"], -n["pitch"]))
 
 

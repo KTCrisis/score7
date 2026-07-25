@@ -76,6 +76,14 @@ Output goes to `--out` if given, else `$SCORE7_OUT`, else `~/audio_analysis/`: a
 
 Tempo and meter are always estimated (no flag); when the tempo octave is ambiguous
 (confidence < 0.5), the sheet and console list the candidates with their strength.
+When one of those candidates is *stronger than the tempo actually kept*, the JSON
+carries `tempo.bpm_disputed` with both figures. score7 does not silently correct
+it: halving the bpm without decimating `beat_times` would break the grid, and
+decimating assumes knowing which beat of two is the quarter note, which the
+tempogram does not say. A trained tracker off by an octave still beats a
+heuristic guessing. Downstream consumers get the disagreement stated instead of
+buried in a list, and a doubled tempo means harmonic durations are expressed in
+that subdivision, not in quarter notes.
 
 ## MCP
 

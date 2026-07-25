@@ -60,6 +60,42 @@ def _segments_to_grid(segs, beat_times, min_beats: int = 1) -> list:
         # premier beat s'écrasent tous à bt[0] avec le même timestamp
         out.append({"chord": compact, "chord_full": full, "start_beat": sb,
                     "beats": beats, "conf": 1.0, "time": round(float(s), 2)})
+    return _despike(out)
+
+
+def _despike(grid: list, max_beats: int = 1) -> list:
+    """Absorbe les micro-segments encadrés par le MÊME accord.
+
+    Un détecteur trame par trame produit des accidents d'un beat au milieu d'un
+    accord tenu : sur « A Midsummer Nice Dream », une quinzaine de `Bm7` d'un
+    temps ponctuaient des plages de `Bm`. Ce n'est pas une lecture, c'est du
+    jitter, et il pollue autant la grille affichée que le calcul de durées.
+
+    On n'absorbe QUE si les deux voisins portent le même accord : un accord
+    court entre deux accords différents est peut-être un vrai passage, et
+    l'effacer inventerait une harmonie plus simple que la musique.
+    """
+    if len(grid) < 3:
+        return grid
+    out = [grid[0]]
+    i = 1
+    while i < len(grid) - 1:
+        cur, prev, nxt = grid[i], out[-1], grid[i + 1]
+        if cur["beats"] <= max_beats and prev["chord"] == nxt["chord"] != cur["chord"]:
+            prev["beats"] += cur["beats"]          # le tenu absorbe l'accident
+            i += 1
+            continue
+        if cur["chord"] == prev["chord"]:          # même accord de suite : fusionner
+            prev["beats"] += cur["beats"]
+            i += 1
+            continue
+        out.append(cur)
+        i += 1
+    last = grid[-1]
+    if out and last["chord"] == out[-1]["chord"]:
+        out[-1]["beats"] += last["beats"]
+    else:
+        out.append(last)
     return out
 
 
