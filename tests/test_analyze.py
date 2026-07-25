@@ -38,10 +38,15 @@ def test_separation_failure_surfaces_as_stems_error(tmp_path, monkeypatch):
     wav = tmp_path / "tone.wav"
     _write_tone(wav)
 
-    # stub du module melody : l'import réel tire torch/demucs (extra [melody])
+    # stub du module melody : l'import réel tire torch/demucs (extra [melody]).
+    # On patche sys.modules ET l'attribut du package : `from score7_mcp import
+    # melody` lit l'attribut dès qu'il existe, donc sys.modules seul ne suffit
+    # plus une fois qu'un autre test a importé le vrai module.
+    import score7_mcp
     stub = types.ModuleType("score7_mcp.melody")
     stub.separate = lambda path, outdir, model="htdemucs": (_ for _ in ()).throw(RuntimeError("demucs absent"))
     monkeypatch.setitem(sys.modules, "score7_mcp.melody", stub)
+    monkeypatch.setattr(score7_mcp, "melody", stub, raising=False)
 
     r = analyze_file(str(wav), separate=True, outdir=str(tmp_path))
     assert r["stems_error"] == "demucs absent"
