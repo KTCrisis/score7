@@ -111,3 +111,38 @@ def test_energy_share_sums_to_one(tmp_path):
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
+
+
+def _drum_grid(offsets_ms, bpm=120.0, dur=8.0, sr=22050):
+    """Clics larges bande sur une grille de doubles-croches, décalés à volonté."""
+    beat = 60.0 / bpm
+    steps = np.arange(0, dur, beat / 4) + np.asarray(offsets_ms) / 1000.0
+    rng = np.random.default_rng(0)
+    y = np.zeros(int(sr * dur), dtype=np.float32)
+    n = int(0.02 * sr)
+    env = np.exp(-np.linspace(0, 12, n))
+    for t in steps:
+        i = int(t * sr)
+        y[i:i + n] += (rng.normal(0, 1, n) * env).astype(np.float32) * 0.8
+    return y, np.arange(0, dur, beat)
+
+
+def test_une_grille_droite_ne_produit_pas_de_microtiming(tmp_path):
+    """Le défaut d'origine : avec un hop de 512, une grille parfaitement
+    quantifiée rapportait 13,3 ms de microtiming. On mesurait la trame
+    d'analyse, pas le batteur."""
+    y, beats = _drum_grid(np.zeros(64))
+    path = tmp_path / "droit.wav"
+    sf.write(path, y, 22050)
+    r = texture.rhythm_pattern(str(path), beats)
+    assert r["microtiming_ms"] < 5.0
+
+
+def test_un_retard_reel_est_mesure_a_sa_valeur(tmp_path):
+    """Et le plancher ne doit pas avoir été gagné en aplatissant la mesure :
+    un décalage franc reste lu comme tel."""
+    y, beats = _drum_grid(np.full(64, 20.0))
+    path = tmp_path / "traine.wav"
+    sf.write(path, y, 22050)
+    r = texture.rhythm_pattern(str(path), beats)
+    assert 15.0 < r["microtiming_ms"] < 25.0

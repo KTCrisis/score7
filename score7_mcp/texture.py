@@ -28,6 +28,42 @@ _STEMS = ("drums", "bass", "other", "vocals")
 
 
 # --------------------------------------------------------------------------- filtrage
+#: Résolution d'analyse pour la POSITION des onsets (le reste garde 512, qui
+#: convient au pattern). Mesuré sur une grille parfaitement quantifiée, dont le
+#: microtiming vaut zéro par construction : la chaîne d'origine (hop 512, fenêtre
+#: 2048) rapportait 13,3 ms, soit la règle et non le jeu. Le hop pèse le plus
+#: (5,2 ms à 128, 2,9 à 64), la fenêtre à la marge (2,6 ms à 1024/64). En
+#: dessous de 512 le banc mel de librosa se vide à 22 kHz, donc 1024 est le
+#: plancher raisonnable. Huit fois plus de trames sur un seul stem : négligeable.
+_MICRO_HOP = 64
+_MICRO_NFFT = 1024
+
+
+def _onset_times_fine(y: np.ndarray, sr: int, hop: int = _MICRO_HOP,
+                      n_fft: int = _MICRO_NFFT) -> np.ndarray:
+    """Positions d'onsets affinées sous la trame d'analyse.
+
+    Le sommet d'une enveloppe d'onset est une parabole échantillonnée : ses
+    trois points voisins suffisent à retrouver le pic entre deux trames. Sans
+    cette correction, chaque onset est arrondi à la trame la plus proche, et le
+    microtiming rapporté est celui de la grille d'analyse plutôt que celui du
+    batteur. Le filtre à phase nulle en amont sert exactement le même but : ne
+    pas déplacer ce qu'on prétend mesurer à la milliseconde.
+    """
+    oenv = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop, n_fft=n_fft)
+    frames = librosa.onset.onset_detect(onset_envelope=oenv, sr=sr, hop_length=hop)
+    times = []
+    for f in frames:
+        delta = 0.0
+        if 0 < f < len(oenv) - 1:
+            a, b, c = float(oenv[f - 1]), float(oenv[f]), float(oenv[f + 1])
+            denom = a - 2.0 * b + c
+            if denom:  # nul sur un plateau : le pic est alors la trame elle-même
+                delta = float(np.clip(0.5 * (a - c) / denom, -0.5, 0.5))
+        times.append((f + delta) * hop / sr)
+    return np.asarray(times)
+
+
 def _band(y: np.ndarray, sr: int, lo: float, hi: float | None) -> np.ndarray:
     """Filtre Butterworth ordre 4, phase nulle (sosfiltfilt) — pas de décalage temporel,
     ce qui est essentiel : on mesure ensuite la position des onsets à la milliseconde."""
@@ -127,10 +163,10 @@ def rhythm_pattern(drums_path: str, beat_times: np.ndarray, sr: int = 22050,
             "density_hz": round(len(onsets) / dur, 2),
         }
 
-    # microtiming & swing : sur l'enveloppe pleine bande du stem batterie
-    oenv_full = librosa.onset.onset_strength(y=y, sr=sr)
-    onset_t = librosa.frames_to_time(
-        librosa.onset.onset_detect(onset_envelope=oenv_full, sr=sr), sr=sr)
+    # microtiming & swing : sur l'enveloppe pleine bande du stem batterie, à la
+    # résolution fine — ces deux mesures-là portent sur des écarts de l'ordre de
+    # la dizaine de millisecondes, une trame de 23 ms les noierait
+    onset_t = _onset_times_fine(y, sr)
     micro_ms = None
     if len(onset_t) and len(step_t):
         # n'évaluer que les onsets couverts par la grille : un onset d'outro (après le
