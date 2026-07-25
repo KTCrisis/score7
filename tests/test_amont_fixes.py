@@ -120,3 +120,29 @@ def test_repetitions_consecutives_fusionnees():
 def test_grille_courte_intacte():
     grid = [_seg("Bm", 0, 4), _seg("E", 4, 4)]
     assert len(_despike(grid)) == 2
+
+
+def test_le_seuil_epargne_un_creux_modere(tmp_path):
+    """Un passage doux à -10 dB fait partie du morceau, pas du fondu."""
+    import numpy as np, soundfile as sf
+    from score7_mcp.melody import _quiet_spans
+    sr = 22050
+    t = np.linspace(0, 6, 6 * sr, endpoint=False)
+    y = 0.5 * np.sin(2 * np.pi * 220 * t)
+    y[2 * sr:4 * sr] *= 0.3               # ~-10 dB : un creux, pas une fin
+    p = tmp_path / "creux.wav"
+    sf.write(str(p), y, sr)
+    assert _quiet_spans(str(p)) == []
+
+
+def test_le_seuil_coupe_un_vrai_fondu(tmp_path):
+    """-25 dB : la queue de réverbération, où la transcription invente."""
+    import numpy as np, soundfile as sf
+    from score7_mcp.melody import _quiet_spans
+    sr = 22050
+    t = np.linspace(0, 6, 6 * sr, endpoint=False)
+    y = 0.5 * np.sin(2 * np.pi * 220 * t)
+    y[4 * sr:] *= 0.055                   # ~-25 dB
+    p = tmp_path / "fondu.wav"
+    sf.write(str(p), y, sr)
+    assert any(a >= 3.5 for a, _ in _quiet_spans(str(p)))

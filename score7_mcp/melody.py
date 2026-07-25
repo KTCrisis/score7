@@ -204,8 +204,12 @@ def _velocities(notes: list, y, sr, lo: int = 45, hi: int = 112) -> list:
     return notes
 
 
-#: sous ce niveau, relatif au corps du morceau, on ne transcrit plus
-_QUIET_FLOOR_DB = 28.0
+#: sous ce niveau, relatif au corps du morceau, on ne transcrit plus.
+#: Calé sur mesure et non à l'intuition : sur « A Midsummer Nice Dream » le
+#: fondu passe -20 dB vers 140 s, et c'est là que la transcription commence à
+#: inventer. Les passages doux LÉGITIMES du même morceau vivent à -7 dB, d'où
+#: le compromis : assez bas pour les épargner, assez haut pour couper la queue.
+_QUIET_FLOOR_DB = 18.0
 #: fenêtre du profil de niveau, en secondes
 _LEVEL_WIN = 1.0
 
