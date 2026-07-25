@@ -169,6 +169,14 @@ keeping onsets at least 3 s apart, capped at twelve.
 the maximum. Swing is reported both raw (0.5 is straight, 0.667 is triplet) and
 as a percentage between those two bounds.
 
+Microtiming and swing are read at a finer resolution than the rest (hop 64,
+window 1024, plus parabolic interpolation of the onset peak) because they
+measure deviations of a few milliseconds. The pattern grid keeps hop 512, which
+is plenty for placing a step. Measured against a perfectly quantised grid, whose
+true microtiming is zero by construction, the reported figure is about 2.6 ms,
+against 13.3 ms with the shared 512 hop: below that resolution one measures the
+analysis frame, not the drummer.
+
 The sound layer needs none of this: centroid, 85% rolloff, BS.1770 loudness and
 crest factor are definitions, not arbitrations.
 
