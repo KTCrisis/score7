@@ -121,7 +121,9 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
         "rhythm": {"beat_times": [round(float(t), 4) for t in beat_times],
                    "beats_per_bar": (meter or {}).get("beats_per_bar")},
         "structure": core.dynamic_structure(y, sr),
-        "spectral": core.spectral_profile(y, sr),
+        # pleine bande, pas le mono d'analyse : à 22 050 Hz le spectre s'arrête à
+        # 11 kHz et la brillance était sous-estimée de 16 à 24 % (voir core)
+        "spectral": core.spectral_profile(core.wideband_mono(y_stereo), sr_native),
         "stereo": core.stereo_width(y_stereo),
         "loudness": core.loudness(y_stereo, sr_native),
     }

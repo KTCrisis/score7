@@ -495,9 +495,33 @@ def dynamic_structure(y, sr, n_sections: int = 8):
 
 
 # --------------------------------------------------------------------------- spectral
+def wideband_mono(y_stereo) -> np.ndarray:
+    """Mono à la fréquence d'origine, replié depuis le stéréo déjà chargé.
+
+    `load_audio` garde le signal natif pour la stéréo et le loudness : le replier
+    ici évite de relire le fichier juste pour retrouver les aigus.
+    """
+    y = np.asarray(y_stereo)
+    return (y.mean(axis=0) if y.ndim == 2 else y).astype(np.float32)
+
+
 def spectral_profile(y, sr, S=None):
-    """`S` = magnitude STFT précalculée (np.abs(librosa.stft(y))) ; quand fournie, on
-    évite quatre STFT internes (centroïde/rolloff/bande/flatness la recalculent chacune)."""
+    """Profil spectral — À NOURRIR EN PLEINE BANDE, pas avec le mono d'analyse.
+
+    Les autres couches travaillent à 22 050 Hz, ce qui convient aux notes et aux
+    beats mais coupe le spectre à 11 kHz. Le centroïde et le rolloff mesuraient
+    donc un signal amputé de ses aigus : sur les deux morceaux du magasin, le
+    centroïde monte de 16 à 24 % une fois le signal rendu entier. Le biais était
+    systématique et allait toujours vers le sombre.
+
+    Les seuils de description (1500 / 3000 Hz) restent inchangés : ce sont des
+    repères de littérature établis sur du signal pleine bande, c'est la mesure
+    qui s'en écartait. `sr_hz` est renvoyé pour que deux analyses ne soient
+    comparées qu'à largeur de bande égale.
+
+    `S` = magnitude STFT précalculée (np.abs(librosa.stft(y))) ; quand fournie, on
+    évite quatre STFT internes (centroïde/rolloff/bande/flatness la recalculent chacune).
+    """
     if S is None:
         S = np.abs(librosa.stft(y))
     cent = float(np.mean(librosa.feature.spectral_centroid(S=S, sr=sr)))
@@ -508,7 +532,8 @@ def spectral_profile(y, sr, S=None):
             else "équilibré — médiums présents" if cent < 3000
             else "brillant — énergie marquée dans les aigus")
     return {"centroid_hz": round(cent), "rolloff85_hz": round(roll),
-            "bandwidth_hz": round(bw), "flatness": round(flat, 4), "description": desc}
+            "bandwidth_hz": round(bw), "flatness": round(flat, 4),
+            "sr_hz": int(sr), "description": desc}
 
 
 # --------------------------------------------------------------------------- stéréo
