@@ -178,3 +178,46 @@ def test_spectral_profile_reads_the_whole_band(tmp_path):
     assert spectral["centroid_hz"] > 2000
     # Le taux natif est rendu : deux analyses ne se comparent qu'à bande égale.
     assert spectral["sr_hz"] == 48000
+
+
+def test_melody_src_accepts_a_stem_name(tmp_path):
+    """`--melody-src vocals` désigne un stem, pas un fichier du dossier courant :
+    le chemin du dossier de stems n'est connu qu'après la séparation, donc
+    personne ne peut le donner au moment de régler l'analyse."""
+    from score7_mcp.analyze import _resolve_melody_src
+
+    stems = tmp_path / "htdemucs" / "track"
+    stems.mkdir(parents=True)
+    for name in ("vocals", "other", "bass", "drums"):
+        (stems / f"{name}.wav").write_bytes(b"")
+
+    assert _resolve_melody_src("vocals", str(stems), "mix.wav") == str(stems / "vocals.wav")
+    assert _resolve_melody_src("vocals.wav", str(stems), "mix.wav") == str(stems / "vocals.wav")
+    # sans consigne : other d'abord, la voix seulement s'il manque
+    assert _resolve_melody_src(None, str(stems), "mix.wav") == str(stems / "other.wav")
+    (stems / "other.wav").unlink()
+    assert _resolve_melody_src(None, str(stems), "mix.wav") == str(stems / "vocals.wav")
+
+
+def test_melody_src_names_what_exists_instead_of_failing_late(tmp_path):
+    """Un stem inexistant échoue tout de suite, en disant lesquels existent —
+    plutôt qu'une erreur de lecture audio à l'autre bout de la chaîne."""
+    import pytest
+
+    from score7_mcp.analyze import _resolve_melody_src
+
+    stems = tmp_path / "stems"
+    stems.mkdir()
+    (stems / "other.wav").write_bytes(b"")
+
+    with pytest.raises(ValueError) as e:
+        _resolve_melody_src("piano", str(stems), "mix.wav")
+    assert "piano" in str(e.value) and "other" in str(e.value)
+
+    # un vrai fichier garde la priorité sur l'interprétation « nom de stem »
+    real = tmp_path / "piano.wav"
+    real.write_bytes(b"")
+    assert _resolve_melody_src(str(real), str(stems), "mix.wav") == str(real)
+
+    # pas de séparation : sans stems, le mix reste la source
+    assert _resolve_melody_src(None, None, "mix.wav") == "mix.wav"

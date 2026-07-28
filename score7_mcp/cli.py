@@ -25,7 +25,7 @@ def main(argv=None):
                     help="modèle Demucs : htdemucs (défaut), htdemucs_ft (plus lent, basse "
                          "plus propre), htdemucs_6s (6 stems, +guitar/piano)")
     ap.add_argument("--melody", action="store_true", help="extraction de la ligne mélodique")
-    ap.add_argument("--melody-src", default=None, help="stem précis pour la mélodie")
+    ap.add_argument("--melody-src", default=None, help="stem d'où tirer la mélodie : un nom (vocals, piano) ou un chemin")
     ap.add_argument("--no-dl-chords", dest="dl_chords", action="store_false",
                     help="accords par template chroma seul (sans BTC/madmom, rapide)")
     ap.add_argument("--sr", type=int, default=22050)

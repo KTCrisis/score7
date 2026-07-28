@@ -27,6 +27,43 @@ def _resolve_outdir(outdir: str | None = None) -> str:
     return str(Path(chosen).expanduser())
 
 
+#: stems interrogés à défaut de consigne, dans l'ordre
+_MELODY_FALLBACK = ("other.wav", "vocals.wav")
+
+
+def _resolve_melody_src(melody_src: str | None, stems_dir: str | None, path: str) -> str:
+    """Où lire la mélodie : un nom de stem, un chemin, ou le repli.
+
+    `--melody-src vocals` était accepté puis passé tel quel à librosa, qui
+    cherchait un fichier nommé « vocals » dans le dossier courant et échouait.
+    Le nom d'un stem est pourtant la façon naturelle de le désigner : on ne
+    connaît le chemin du dossier de stems qu'APRÈS la séparation, donc pas au
+    moment de régler l'analyse.
+
+    Un chemin existant reste prioritaire, pour qu'un fichier réellement nommé
+    « piano.wav » dans le dossier courant ne soit pas détourné vers un stem.
+    """
+    if melody_src:
+        if Path(melody_src).exists():
+            return str(melody_src)
+        if stems_dir:
+            name = Path(melody_src).name
+            cand = Path(stems_dir) / (name if name.endswith(".wav") else f"{name}.wav")
+            if cand.exists():
+                return str(cand)
+            available = sorted(p.stem for p in Path(stems_dir).glob("*.wav"))
+            raise ValueError(
+                f"stem introuvable pour la mélodie : {melody_src} "
+                f"(disponibles : {', '.join(available) or 'aucun'})")
+        raise ValueError(f"source de mélodie introuvable : {melody_src}")
+
+    if stems_dir:
+        for cand in _MELODY_FALLBACK:
+            if (Path(stems_dir) / cand).exists():
+                return str(Path(stems_dir) / cand)
+    return path
+
+
 def analyze_file(path: str, sr: int = 22050, title: str | None = None,
                  separate: bool = False, melody: bool = False,
                  melody_src: str | None = None, outdir: str | None = None,
@@ -154,13 +191,7 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
                 except Exception as e:
                     results["texture_error"] = str(e)
         if melody:
-            src = melody_src
-            if src is None and results.get("stems"):
-                stems = Path(results["stems"])
-                for cand in ("other.wav", "vocals.wav"):
-                    if (stems / cand).exists():
-                        src = str(stems / cand); break
-            src = src or path
+            src = _resolve_melody_src(melody_src, results.get("stems"), path)
             try:
                 results["melody"] = mel_mod.extract_melody(src, outdir, slug,
                                                            bpm=tempo["bpm"])

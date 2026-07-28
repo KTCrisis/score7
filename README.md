@@ -51,9 +51,16 @@ cleanly to the librosa / Krumhansl / cosine methods.
 score7 track.flac --json
 score7 track.flac --title my_title --separate --melody
 score7 track.flac --separate --sep-model htdemucs_ft     # alternate Demucs model
-score7 track.flac --melody --melody-src stems/other.wav
+score7 track.flac --melody --melody-src vocals              # a stem name, or a path
 score7 track.flac --no-dl-chords                         # chroma templates only, no GPU
 ```
+
+`--melody-src` takes a **stem name** (`vocals`, `piano`, `other`) as well as a
+path. The stems folder only exists once the separation has run, so its path
+cannot be given when the analysis is configured; a name can. An existing file
+still wins, and a name that matches no stem fails immediately, listing the ones
+that do. Without the flag the melody is read on `other`, falling back to
+`vocals` — worth overriding on sung material, where the melody *is* the voice.
 
 `--sep-model` picks the Demucs architecture: `htdemucs` (default, 4 stems, fast),
 `htdemucs_ft` (4 stems fine-tuned, cleaner bass/vocals, ~2-4x slower) or
