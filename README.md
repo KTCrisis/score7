@@ -119,11 +119,17 @@ sits in no extra (see [Installation](#installation)); when it is missing the
 import fails, the failure is caught and reported on stderr, and the chain falls
 straight through to PESTO. The consequences deserve stating because the JSON does
 not show them: the material is read as monophonic whatever it actually is, and
-`voices`, `polyphony` and the level floor described below never appear. Worse,
-`method` then reads `PESTO (pitch mono)`, exactly as it does when the probe *did*
-run and found the material monophonic. Two different situations, one output. An
-archived analysis run without the probe cannot be told from one that measured its
-way to the same route, so check the install before comparing melody layers.
+`voices` and the level floor described below never appear. `method` is no help
+either, since it then reads `PESTO (pitch mono)` exactly as it does when the
+probe *did* run and found the material monophonic.
+
+**So the route says how it was chosen.** `poly_probe` is `basic-pitch` when the
+probe ran, `indisponible` when it could not be imported (with the import error in
+`poly_probe_error`), and `basic-pitch (aucune note)` when it ran and heard
+nothing. `polyphony` is published whenever it was measured, including when the
+verdict is monophonic and no `voices` follow: a measured 1.0 and an assumed
+monophony are not the same claim, and an archived analysis has to be able to tell
+them apart.
 
 **A high-pass at 180 Hz precedes f0 tracking.** On a synth stem the low pedal (a
 tonic drone, residual bass) dominates salience and captures a monophonic tracker:

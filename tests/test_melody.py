@@ -102,3 +102,51 @@ def test_merge_microgaps_and_drop_outliers():
             {"pitch": 72, "start": 0.9, "dur": 0.2, "name": "C5"}]   # saut normal -> gardé
     kept = mel._drop_outliers(line)
     assert [n["pitch"] for n in kept] == [67, 69, 72]
+
+
+def _mono_stub(monkeypatch, sr=22050):
+    """PESTO et le post-traitement neutralisés : seuls les champs de route sont testés."""
+    from score7_mcp import melody as mel
+
+    monkeypatch.setattr(mel, "_melody_pesto",
+                        lambda p, min_dur=0.1: [{"pitch": 69, "start": 0.0, "dur": 0.5,
+                                                 "name": "A4", "vel": 90}])
+    monkeypatch.setattr(mel, "_split_at_onsets", lambda n, y, sr, min_dur=0.1: n)
+    monkeypatch.setattr(mel, "_velocities", lambda n, y, sr: n)
+    return mel
+
+
+def test_poly_probe_absent_is_distinguishable_from_measured_mono(tmp_path, monkeypatch):
+    """Sans la sonde, `method` vaut PESTO exactement comme lorsqu'elle a mesuré du
+    monophonique. Les deux cas doivent rester séparables dans la sortie, sinon une
+    analyse archivée ne dit pas si la route a été mesurée ou supposée."""
+    import soundfile as sf
+
+    mel = _mono_stub(monkeypatch)
+    sr = 22050
+    y = (0.3 * np.sin(2 * np.pi * 220.0 * np.linspace(0, 1.0, sr, endpoint=False))).astype(np.float32)
+    f = tmp_path / "src.wav"
+    sf.write(f, y, sr)
+
+    def run():
+        return mel.extract_melody(str(f), str(tmp_path), "t")
+
+    # sonde absente : import qui échoue, comme sur une install sans basic-pitch
+    monkeypatch.setattr(mel, "_melody_basic_pitch",
+                        lambda p, **kw: (_ for _ in ()).throw(ImportError("No module named 'basic_pitch'")))
+    absent = run()
+
+    # sonde présente, verdict monophonique (polyphonie sous le seuil de 1.2)
+    monkeypatch.setattr(mel, "_melody_basic_pitch",
+                        lambda p, **kw: [{"pitch": 69, "start": 0.0, "dur": 0.5, "name": "A4"},
+                                         {"pitch": 71, "start": 0.6, "dur": 0.5, "name": "B4"}])
+    measured = run()
+
+    assert absent["method"] == measured["method"]  # le point du bug : method ne suffit pas
+    assert absent["poly_probe"] == "indisponible"
+    assert "basic_pitch" in absent["poly_probe_error"]
+    assert "polyphony" not in absent  # rien n'a été mesuré, rien n'est affirmé
+
+    assert measured["poly_probe"] == "basic-pitch"
+    assert measured["polyphony"] == 1.0  # mesurée, publiée, bien que le verdict soit mono
+    assert "voices" not in measured  # route mono : pas de ligne/arpèges
