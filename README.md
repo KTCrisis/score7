@@ -148,6 +148,13 @@ inventing) while its genuinely quiet passages live at -7 dB: low enough to spare
 those, high enough to cut the tail. The console reports how many notes were
 dropped.
 
+That the floor is confined to one route is a measurement, not an oversight. On
+the same stem, the quiet span runs 141.5 s to 171 s; with the floor lifted,
+basic-pitch puts 464 of its 2214 notes inside it, PESTO none of its 246. A
+transcriber has to name every note it hears, so a reverb tail becomes notes; a
+pitch tracker rates its own confidence and gives that stretch up on its own.
+Applying the floor to the f0 route would defend against something it does not do.
+
 **Cleanup runs in a fixed order, and the order is not interchangeable.** Same-pitch
 notes separated by less than 80 ms are merged first, since salience flicker
 shreds a held note into confetti rather than into music. Short notes (under
@@ -185,15 +192,27 @@ compared). A wrongly ternary reading changes how the whole piece is written down
 so the bias is toward the more common case.
 
 **Chords.** The published grid is already smoothed, and not the same way on every
-route. On the cosine fallback, segments shorter than two beats are dropped,
-unless dropping them would empty the grid, in which case the raw segmentation is
-kept. On the BTC and madmom routes nothing is dropped for being short; instead a
-one-beat segment is absorbed into the surrounding chord only when both of its
-neighbours carry the *same* chord — that is jitter from a frame-by-frame
-detector, not a reading. A short chord between two *different* ones is left
-alone, since it may be a real passage and erasing it would invent a simpler
-harmony than the music. `chords_source` says which route produced the grid, and
-comparing two analyses means comparing two grids filtered the same way.
+route, but a short segment is always *absorbed by its neighbour*, never deleted:
+whichever route produced it, the grid covers the track from end to end and the
+beats sum to the analysed sequence. Durations are therefore comparable across
+routes, which they were not while the cosine path dropped what it did not like
+and left holes behind.
+
+What differs is the threshold and the guard. The cosine fallback absorbs
+everything under two beats, because template matching on chroma is noisy at that
+scale; if no segment reaches the threshold the raw segmentation is kept, since a
+grid that is noise throughout should say so rather than collapse into one long
+chord nobody played. On the BTC and madmom routes only one-beat segments are
+absorbed, and only when both neighbours carry the *same* chord: that is jitter
+from a frame-by-frame detector, not a reading. A short chord between two
+*different* ones is left alone there, since it may be a real passage and erasing
+it would invent a simpler harmony than the music.
+
+`chords_source` says which route produced the grid. Only the cosine route carries
+a `conf` field, and it is a real one (the mean cosine similarity of the segment).
+BTC and madmom return no per-segment confidence, so none is published: a constant
+1.0 reads as measured certainty on the most reliable route of the three, which is
+the one place a filler value does the most damage.
 
 **Structure.** `coarse` is eight windows of **equal duration**, not musical
 sections: it reports how energy is distributed over time, nothing more. The

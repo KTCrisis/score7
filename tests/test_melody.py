@@ -150,3 +150,53 @@ def test_poly_probe_absent_is_distinguishable_from_measured_mono(tmp_path, monke
     assert measured["poly_probe"] == "basic-pitch"
     assert measured["polyphony"] == 1.0  # mesurée, publiée, bien que le verdict soit mono
     assert "voices" not in measured  # route mono : pas de ligne/arpèges
+
+
+def test_split_voices_keeps_the_weaving():
+    """Skyline géométrique : la note la plus haute qui sonne tient la ligne, ce
+    qu'elle recouvre part aux arpèges. Un accord plaqué ne laisse que son sommet
+    en ligne ; une note qui se termine avant l'entrée de la suivante n'est pas
+    recouverte, même si celle-ci est plus haute."""
+    from score7_mcp import melody as mel
+
+    chord = [{"pitch": 60, "start": 0.0, "dur": 1.0},   # do, couvert
+             {"pitch": 64, "start": 0.0, "dur": 1.0},   # mi, couvert
+             {"pitch": 67, "start": 0.0, "dur": 1.0}]   # sol, sommet -> ligne
+    line, acc = mel._split_voices(chord)
+    assert [n["pitch"] for n in line] == [67]
+    assert [n["pitch"] for n in acc] == [60, 64]
+
+    successive = [{"pitch": 60, "start": 0.0, "dur": 0.5},
+                  {"pitch": 72, "start": 0.5, "dur": 0.5}]  # aucune superposition
+    line, acc = mel._split_voices(successive)
+    assert [n["pitch"] for n in line] == [60, 72] and acc == []
+
+
+def test_mean_polyphony_is_the_routing_criterion():
+    """Le seuil de 1.2 arbitre la route : une ligne successive doit tomber à 1.0,
+    un triad tenu à 3.0. Sans cet écart, l'aiguillage n'a aucun sens."""
+    from score7_mcp import melody as mel
+
+    mono = [{"pitch": 60, "start": 0.0, "dur": 0.4},
+            {"pitch": 62, "start": 0.5, "dur": 0.4},
+            {"pitch": 64, "start": 1.0, "dur": 0.4}]
+    assert mel._mean_polyphony(mono) == 1.0
+
+    triad = [{"pitch": p, "start": 0.0, "dur": 1.0} for p in (60, 64, 67)]
+    assert mel._mean_polyphony(triad) == 3.0
+    assert mel._mean_polyphony([]) == 0.0
+
+
+def test_amp_velocities_span_the_range_and_survive_a_flat_stem():
+    """Vélocités normalisées sur les percentiles 10/95 dans 45-112. Un stem
+    d'amplitude constante ne doit pas diviser par zéro ni sortir des bornes."""
+    from score7_mcp import melody as mel
+
+    notes = [{"pitch": 60, "start": i * 0.5, "dur": 0.4, "amp": a}
+             for i, a in enumerate((0.1, 0.3, 0.5, 0.7, 0.9))]
+    out = mel._amp_velocities(notes)
+    assert all(45 <= n["vel"] <= 112 for n in out)
+    assert out[0]["vel"] < out[-1]["vel"]
+
+    flat = [{"pitch": 60, "start": i * 0.5, "dur": 0.4, "amp": 0.5} for i in range(4)]
+    assert all(45 <= n["vel"] <= 112 for n in mel._amp_velocities(flat))

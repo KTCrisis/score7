@@ -194,12 +194,31 @@ def test_reconcile_rewrites_tonic_when_harmony_absent():
     assert out["mode"] == "minor"
 
 
-def test_merge_grid_filters_short_segments():
+def test_merge_grid_absorbs_short_segments_without_losing_time():
+    """Un segment trop court est rendu au voisin tenu, il n'est plus jeté : la
+    grille couvre le morceau de bout en bout, comme celle de `_despike` sur la
+    route BTC. Sans cela, une durée d'accord n'est pas comparable d'une route à
+    l'autre."""
     seq = [("Am", 0.9)] * 6 + [("F", 0.8)] * 1 + [("Am", 0.9)] * 6
     beat_times = np.arange(13) * 0.5
     grid = core._merge_grid(seq, beat_times, min_beats=2)
     assert all(s["beats"] >= 2 for s in grid)
     assert grid[0]["chord"] == "Am"
+    assert sum(s["beats"] for s in grid) == len(seq)
+
+
+def test_merge_grid_covers_the_track_in_every_shape():
+    """Tête courte, suite de courts, bruit intégral : la somme des beats reste
+    celle de la séquence. Le cas tout-court garde la grille brute, parce que tout
+    absorber en un accord inventerait une tenue que personne n'a jouée."""
+    cases = ([("F", 0.8)] + [("Am", 0.9)] * 6 + [("C", 0.9)] * 6,
+             [("Am", 0.9)] * 4 + [("F", 0.8), ("G", 0.8)] + [("C", 0.9)] * 4,
+             [("Am", 0.9), ("F", 0.8), ("C", 0.9), ("G", 0.9)])
+    for seq in cases:
+        grid = core._merge_grid(seq, np.arange(len(seq) + 1) * 0.5, min_beats=2)
+        assert sum(s["beats"] for s in grid) == len(seq)
+        assert grid[0]["start_beat"] == 0
+    assert len(core._merge_grid(cases[-1], np.arange(5) * 0.5, min_beats=2)) == 4
 
 
 if __name__ == "__main__":

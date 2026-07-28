@@ -445,6 +445,35 @@ def estimate_chords(y, sr, beats_frames, beat_times, min_beats: int = 2):
     return _merge_grid(seq, beat_times, min_beats)
 
 
+def _absorb_short(segs, min_beats):
+    """Segments trop courts pour être une lecture : absorbés par le voisin tenu.
+
+    Ils étaient auparavant jetés, ce qui trouait la grille — la somme des beats
+    ne couvrait plus le morceau et une durée d'accord n'était plus comparable à
+    celle d'une grille BTC, où `_despike` absorbe au lieu d'écarter. Le seuil
+    reste plus haut ici (le cosinus est bruité, le transformeur ne l'est pas),
+    mais les deux routes rendent désormais une grille continue.
+
+    Si aucun segment n'atteint le seuil, la grille est du bruit de bout en bout :
+    la rendre brute dit au moins ce qui a été lu, là où tout absorber en un seul
+    accord inventerait une tenue que personne n'a jouée.
+    """
+    if not segs or all(s["beats"] < min_beats for s in segs):
+        return segs
+    out = []
+    for s in segs:
+        if out and (s["beats"] < min_beats or s["chord"] == out[-1]["chord"]):
+            out[-1]["beats"] += s["beats"]
+            continue
+        if not out and s["beats"] < min_beats:   # tête courte : reportée sur le suivant
+            continue
+        out.append(s)
+    if out and out[0]["start_beat"] != segs[0]["start_beat"]:
+        out[0]["beats"] += out[0]["start_beat"] - segs[0]["start_beat"]
+        out[0]["start_beat"] = segs[0]["start_beat"]
+    return out
+
+
 def _merge_grid(seq, beat_times, min_beats):
     if not seq:
         return []
@@ -459,7 +488,7 @@ def _merge_grid(seq, beat_times, min_beats):
             chord, start, n, confs = seq[i][0], i, 1, [seq[i][1]]
     segs.append({"chord": chord, "start_beat": start, "beats": n, "conf": float(np.mean(confs))})
 
-    filtered = [s for s in segs if s["beats"] >= min_beats] or segs
+    filtered = _absorb_short(segs, min_beats)
     for s in filtered:
         bi = s["start_beat"]
         s["time"] = float(beat_times[bi]) if bi < len(beat_times) else None
