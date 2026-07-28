@@ -7,6 +7,7 @@ Les étapes lourdes (séparation, transcription, mélodie) vivent dans melody.py
 from __future__ import annotations
 
 import functools
+import sys
 import warnings
 
 import librosa
@@ -411,6 +412,49 @@ def try_madmom_key(path):
 
 
 # --------------------------------------------------------------------------- accords
+def annotate_bass_roots(grid: list, bass_path: str, beat_times, sr: int = 22050) -> list:
+    """Note réellement tenue à la basse sous chaque segment d'accord.
+
+    C'est la seule chose qui sépare un accord de son renversement, et aucune
+    projection ne peut la retrouver après coup : un `Bm` dit trois notes, il ne
+    dit pas laquelle est en bas. Une réduction pour piano en a besoin pour la
+    main gauche, un lecteur pour savoir ce qu'il entend.
+
+    Mesure, pas décision : la classe de hauteur dominante du stem `bass` sur la
+    durée du segment (chroma CQT médian, le grave étant monophonique en
+    pratique). Le champ reste ABSENT quand la mesure n'est pas possible — pas de
+    valeur de repli, qui se lirait comme une basse observée.
+    """
+    if not grid:
+        return grid
+    bt = np.asarray(beat_times, dtype=float)
+    if bt.size == 0:
+        return grid
+    try:
+        y, sr_b = librosa.load(str(bass_path), sr=sr, mono=True)
+    except Exception as e:
+        print(f"stem de basse illisible ({e}) : renversements non annotés", file=sys.stderr)
+        return grid
+    if y.size == 0:
+        return grid
+
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr_b)
+    times = librosa.frames_to_time(np.arange(chroma.shape[1]), sr=sr_b)
+    for seg in grid:
+        b0 = int(seg["start_beat"])
+        t0 = float(bt[b0]) if b0 < len(bt) else float(bt[-1])
+        b1 = b0 + int(seg.get("beats", 1))
+        t1 = float(bt[b1]) if b1 < len(bt) else float(times[-1]) + 1.0
+        sl = chroma[:, (times >= t0) & (times < t1)]
+        if sl.size == 0:
+            continue
+        prof = np.median(sl, axis=1)
+        if float(np.max(prof)) <= 0:
+            continue
+        seg["bass_root"] = NOTE_NAMES[int(np.argmax(prof))]
+    return grid
+
+
 def _chord_templates():
     templates = {}
     for r in range(12):
@@ -445,6 +489,35 @@ def estimate_chords(y, sr, beats_frames, beat_times, min_beats: int = 2):
     return _merge_grid(seq, beat_times, min_beats)
 
 
+def _absorb_short(segs, min_beats):
+    """Segments trop courts pour être une lecture : absorbés par le voisin tenu.
+
+    Ils étaient auparavant jetés, ce qui trouait la grille — la somme des beats
+    ne couvrait plus le morceau et une durée d'accord n'était plus comparable à
+    celle d'une grille BTC, où `_despike` absorbe au lieu d'écarter. Le seuil
+    reste plus haut ici (le cosinus est bruité, le transformeur ne l'est pas),
+    mais les deux routes rendent désormais une grille continue.
+
+    Si aucun segment n'atteint le seuil, la grille est du bruit de bout en bout :
+    la rendre brute dit au moins ce qui a été lu, là où tout absorber en un seul
+    accord inventerait une tenue que personne n'a jouée.
+    """
+    if not segs or all(s["beats"] < min_beats for s in segs):
+        return segs
+    out = []
+    for s in segs:
+        if out and (s["beats"] < min_beats or s["chord"] == out[-1]["chord"]):
+            out[-1]["beats"] += s["beats"]
+            continue
+        if not out and s["beats"] < min_beats:   # tête courte : reportée sur le suivant
+            continue
+        out.append(s)
+    if out and out[0]["start_beat"] != segs[0]["start_beat"]:
+        out[0]["beats"] += out[0]["start_beat"] - segs[0]["start_beat"]
+        out[0]["start_beat"] = segs[0]["start_beat"]
+    return out
+
+
 def _merge_grid(seq, beat_times, min_beats):
     if not seq:
         return []
@@ -459,7 +532,7 @@ def _merge_grid(seq, beat_times, min_beats):
             chord, start, n, confs = seq[i][0], i, 1, [seq[i][1]]
     segs.append({"chord": chord, "start_beat": start, "beats": n, "conf": float(np.mean(confs))})
 
-    filtered = [s for s in segs if s["beats"] >= min_beats] or segs
+    filtered = _absorb_short(segs, min_beats)
     for s in filtered:
         bi = s["start_beat"]
         s["time"] = float(beat_times[bi]) if bi < len(beat_times) else None

@@ -51,3 +51,15 @@ def test_chain_falls_back_to_madmom_then_template(monkeypatch):
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
+
+
+def test_grid_publishes_no_fabricated_confidence():
+    """BTC et madmom ne rendent pas de confiance par segment. Publier 1.0 se lit
+    comme une certitude mesurée sur la route la plus fiable des trois, alors que
+    c'est un remplissage : la clé est absente, la route cosinus garde la sienne."""
+    from score7_mcp import chords_dl
+
+    segs = [(0.0, 2.0, "C", "C:maj"), (2.0, 4.0, "Am", "A:min")]
+    grid = chords_dl._segments_to_grid(segs, [0.0, 1.0, 2.0, 3.0, 4.0])
+    assert grid and all("conf" not in s for s in grid)
+    assert [s["chord"] for s in grid] == ["C", "Am"]

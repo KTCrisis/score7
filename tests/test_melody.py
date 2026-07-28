@@ -102,3 +102,101 @@ def test_merge_microgaps_and_drop_outliers():
             {"pitch": 72, "start": 0.9, "dur": 0.2, "name": "C5"}]   # saut normal -> gardé
     kept = mel._drop_outliers(line)
     assert [n["pitch"] for n in kept] == [67, 69, 72]
+
+
+def _mono_stub(monkeypatch, sr=22050):
+    """PESTO et le post-traitement neutralisés : seuls les champs de route sont testés."""
+    from score7_mcp import melody as mel
+
+    monkeypatch.setattr(mel, "_melody_pesto",
+                        lambda p, min_dur=0.1: [{"pitch": 69, "start": 0.0, "dur": 0.5,
+                                                 "name": "A4", "vel": 90}])
+    monkeypatch.setattr(mel, "_split_at_onsets", lambda n, y, sr, min_dur=0.1: n)
+    monkeypatch.setattr(mel, "_velocities", lambda n, y, sr: n)
+    return mel
+
+
+def test_poly_probe_absent_is_distinguishable_from_measured_mono(tmp_path, monkeypatch):
+    """Sans la sonde, `method` vaut PESTO exactement comme lorsqu'elle a mesuré du
+    monophonique. Les deux cas doivent rester séparables dans la sortie, sinon une
+    analyse archivée ne dit pas si la route a été mesurée ou supposée."""
+    import soundfile as sf
+
+    mel = _mono_stub(monkeypatch)
+    sr = 22050
+    y = (0.3 * np.sin(2 * np.pi * 220.0 * np.linspace(0, 1.0, sr, endpoint=False))).astype(np.float32)
+    f = tmp_path / "src.wav"
+    sf.write(f, y, sr)
+
+    def run():
+        return mel.extract_melody(str(f), str(tmp_path), "t")
+
+    # sonde absente : import qui échoue, comme sur une install sans basic-pitch
+    monkeypatch.setattr(mel, "_melody_basic_pitch",
+                        lambda p, **kw: (_ for _ in ()).throw(ImportError("No module named 'basic_pitch'")))
+    absent = run()
+
+    # sonde présente, verdict monophonique (polyphonie sous le seuil de 1.2)
+    monkeypatch.setattr(mel, "_melody_basic_pitch",
+                        lambda p, **kw: [{"pitch": 69, "start": 0.0, "dur": 0.5, "name": "A4"},
+                                         {"pitch": 71, "start": 0.6, "dur": 0.5, "name": "B4"}])
+    measured = run()
+
+    assert absent["method"] == measured["method"]  # le point du bug : method ne suffit pas
+    assert absent["poly_probe"] == "indisponible"
+    assert "basic_pitch" in absent["poly_probe_error"]
+    assert "polyphony" not in absent  # rien n'a été mesuré, rien n'est affirmé
+
+    assert measured["poly_probe"] == "basic-pitch"
+    assert measured["polyphony"] == 1.0  # mesurée, publiée, bien que le verdict soit mono
+    assert "voices" not in measured  # route mono : pas de ligne/arpèges
+
+
+def test_split_voices_keeps_the_weaving():
+    """Skyline géométrique : la note la plus haute qui sonne tient la ligne, ce
+    qu'elle recouvre part aux arpèges. Un accord plaqué ne laisse que son sommet
+    en ligne ; une note qui se termine avant l'entrée de la suivante n'est pas
+    recouverte, même si celle-ci est plus haute."""
+    from score7_mcp import melody as mel
+
+    chord = [{"pitch": 60, "start": 0.0, "dur": 1.0},   # do, couvert
+             {"pitch": 64, "start": 0.0, "dur": 1.0},   # mi, couvert
+             {"pitch": 67, "start": 0.0, "dur": 1.0}]   # sol, sommet -> ligne
+    line, acc = mel._split_voices(chord)
+    assert [n["pitch"] for n in line] == [67]
+    assert [n["pitch"] for n in acc] == [60, 64]
+
+    successive = [{"pitch": 60, "start": 0.0, "dur": 0.5},
+                  {"pitch": 72, "start": 0.5, "dur": 0.5}]  # aucune superposition
+    line, acc = mel._split_voices(successive)
+    assert [n["pitch"] for n in line] == [60, 72] and acc == []
+
+
+def test_mean_polyphony_is_the_routing_criterion():
+    """Le seuil de 1.2 arbitre la route : une ligne successive doit tomber à 1.0,
+    un triad tenu à 3.0. Sans cet écart, l'aiguillage n'a aucun sens."""
+    from score7_mcp import melody as mel
+
+    mono = [{"pitch": 60, "start": 0.0, "dur": 0.4},
+            {"pitch": 62, "start": 0.5, "dur": 0.4},
+            {"pitch": 64, "start": 1.0, "dur": 0.4}]
+    assert mel._mean_polyphony(mono) == 1.0
+
+    triad = [{"pitch": p, "start": 0.0, "dur": 1.0} for p in (60, 64, 67)]
+    assert mel._mean_polyphony(triad) == 3.0
+    assert mel._mean_polyphony([]) == 0.0
+
+
+def test_amp_velocities_span_the_range_and_survive_a_flat_stem():
+    """Vélocités normalisées sur les percentiles 10/95 dans 45-112. Un stem
+    d'amplitude constante ne doit pas diviser par zéro ni sortir des bornes."""
+    from score7_mcp import melody as mel
+
+    notes = [{"pitch": 60, "start": i * 0.5, "dur": 0.4, "amp": a}
+             for i, a in enumerate((0.1, 0.3, 0.5, 0.7, 0.9))]
+    out = mel._amp_velocities(notes)
+    assert all(45 <= n["vel"] <= 112 for n in out)
+    assert out[0]["vel"] < out[-1]["vel"]
+
+    flat = [{"pitch": 60, "start": i * 0.5, "dur": 0.4, "amp": 0.5} for i in range(4)]
+    assert all(45 <= n["vel"] <= 112 for n in mel._amp_velocities(flat))

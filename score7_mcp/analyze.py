@@ -105,6 +105,13 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
     else:
         chords, chords_source = cosine_grid(), "template"
 
+    # Renversements : la fondamentale réellement jouée à la basse, quand la
+    # séparation l'a isolée. Une grille dit les accords, pas ce qui est en bas.
+    if results_stems:
+        bass_wav = Path(results_stems) / "bass.wav"
+        if bass_wav.exists():
+            chords = core.annotate_bass_roots(chords, str(bass_wav), beat_times, sr=sr)
+
     results = {
         "title": title, "slug": slug, "file": path, "outdir": outdir,
         "bpm": tempo["bpm"], "tempo": tempo, "meter": meter, "key": key, "chords": chords,

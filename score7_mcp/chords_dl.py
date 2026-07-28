@@ -58,8 +58,11 @@ def _segments_to_grid(segs, beat_times, min_beats: int = 1) -> list:
             continue
         # time = vrai début du segment (et non bt[sb]) : sinon plusieurs accords avant le
         # premier beat s'écrasent tous à bt[0] avec le même timestamp
+        # pas de champ `conf` : BTC et madmom ne renvoient pas de confiance par segment,
+        # et un 1.0 constant se lit comme une certitude mesurée alors qu'il n'est qu'un
+        # remplissage. Seule la route cosinus en publie une, qui en est vraiment une.
         out.append({"chord": compact, "chord_full": full, "start_beat": sb,
-                    "beats": beats, "conf": 1.0, "time": round(float(s), 2)})
+                    "beats": beats, "time": round(float(s), 2)})
     return _despike(out)
 
 

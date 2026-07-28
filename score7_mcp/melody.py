@@ -338,12 +338,16 @@ def extract_melody(path: str, outdir: str, slug: str, band=(60, 84),
     print(f"→ Extraction mélodie sur {Path(path).name}…", file=sys.stderr)
     min_dur = max(0.1, 0.22 * 60.0 / bpm) if bpm else 0.1
     notes, method, voices, poly = None, None, None, None
+    probe, probe_err = None, None
 
     # Sonde polyphonique : basic-pitch (~5 s en ONNX) entend TOUTES les notes.
     # Sa mesure arbitre : matériau mono -> PESTO (plus précis sur une voix) ;
     # poly -> skyline sur ses propres notes, en deux voix (ligne / arpèges).
+    # Son sort est reporté dans la sortie : sans elle `method` vaut PESTO comme
+    # si le monophonique avait été mesuré, alors qu'il n'a été que supposé.
     try:
         bp = _melody_basic_pitch(path, min_dur=min_dur)
+        probe = "basic-pitch" if bp else "basic-pitch (aucune note)"
         if bp:
             poly = _mean_polyphony(bp)
             print(f"  polyphonie mesurée : {poly:.2f} "
@@ -359,6 +363,7 @@ def extract_melody(path: str, outdir: str, slug: str, band=(60, 84),
                           {"name": "arpèges", "notes": acc}]
                 method = f"basic-pitch + skyline (polyphonie {poly:.1f})"
     except Exception as e:
+        probe, probe_err = "indisponible", str(e)
         print(f"  basic-pitch indisponible ({e}) → chaîne mono", file=sys.stderr)
 
     if notes is None:
@@ -411,9 +416,13 @@ def extract_melody(path: str, outdir: str, slug: str, band=(60, 84),
     from collections import Counter
     pcs = Counter(pretty_midi.note_number_to_name(n["pitch"] % 12 + 60)[:-1] for n in notes)
     out = {"midi": midi_path, "notes": notes, "n_notes": len(notes), "method": method,
+           "poly_probe": probe,
            "sequence": " ".join(n["name"] for n in notes),
            "pitch_classes": dict(sorted(pcs.items(), key=lambda kv: -kv[1]))}
+    if probe_err:
+        out["poly_probe_error"] = probe_err
+    if poly is not None:  # mesurée, y compris quand le verdict est monophonique
+        out["polyphony"] = round(poly, 2)
     if voices:
         out["voices"] = voices
-        out["polyphony"] = round(poly, 2)
     return out

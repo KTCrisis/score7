@@ -93,6 +93,11 @@ def render_markdown(r: dict) -> str:
         m = r["melody"]
         L.append("## Mélodie extraite\n")
         L.append(f"Méthode : {m['method']} — {m['n_notes']} notes → `{m['midi']}`\n")
+        if m.get("poly_probe") == "indisponible":
+            L.append("*Sonde de polyphonie indisponible : la route n'a pas été mesurée, "
+                     "le matériau est traité comme monophonique quel qu'il soit.*\n")
+        elif m.get("polyphony") is not None:
+            L.append(f"*Polyphonie mesurée : {m['polyphony']} (sonde {m['poly_probe']}).*\n")
         L.append(f"**Classes de hauteur :** {m['pitch_classes']}\n")
         L.append(f"**Séquence :** {m['sequence']}\n")
         L.append("*Ligne supérieure estimée — à nettoyer dans Renoise/MuseScore.*\n")
