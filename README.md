@@ -26,8 +26,10 @@ pip install "madmom @ git+https://github.com/CPJKU/madmom.git"  # see below
 ```
 
 Model weights (Beat This! ~77 MB, BTC ~12 MB, PESTO, Demucs, transcription) are
-downloaded on first use. `basic-pitch` is not used (it pins numpy<1.24,
-incompatible with Python 3.12).
+downloaded on first use. `basic-pitch` is *optional* and no extra pulls it in: it
+pins numpy<1.24, incompatible with Python 3.12. The melody chain probes for it
+and falls through to PESTO when it is missing, which changes what the melody
+layer can produce — see [Melody](#melody-what-gets-filtered-and-why).
 
 The `[rhythm]` extra brings the neural trackers (Beat This! for beats, madmom for
 the CNN key and deep-chroma chords). madmom needs a git install: PyPI 0.16.1 is
@@ -41,6 +43,7 @@ score7 track.flac --json
 score7 track.flac --title my_title --separate --melody
 score7 track.flac --separate --sep-model htdemucs_ft     # alternate Demucs model
 score7 track.flac --melody --melody-src stems/other.wav
+score7 track.flac --no-dl-chords                         # chroma templates only, no GPU
 ```
 
 `--sep-model` picks the Demucs architecture: `htdemucs` (default, 4 stems, fast),
@@ -92,15 +95,23 @@ handful of decisions, and every threshold below was set against a real track
 rather than picked as a round number. They are stated here because two analyses
 are only comparable when the filtering behind them is the same.
 
-**The route is measured, not assumed.** basic-pitch (~5 s on the ONNX backend)
-transcribes every note it hears, and its mean polyphony decides what follows: at
-or below 1.2 the material is monophonic and PESTO takes over, being more accurate
-on a single voice; above it, the skyline of basic-pitch's own notes is used and
-split into two parts, `ligne` (the highest note sounding at any instant) and
-`arpèges` (everything covered by a higher one). The second part matters on
-interlocking material, where one voice alone is not the piece. Note that the
-split is geometric: score7 follows the dominant voice, it does not separate
-melody from accompaniment in the musical sense.
+**The route is measured when the probe is there.** score7 first tries basic-pitch
+(~5 s on the ONNX backend), which transcribes every note it hears; its mean
+polyphony then decides what follows. At or below 1.2 the material is monophonic
+and PESTO takes over, being more accurate on a single voice; above it, the
+skyline of basic-pitch's own notes is used and split into two parts, `ligne` (the
+highest note sounding at any instant) and `arpèges` (everything covered by a
+higher one). The second part matters on interlocking material, where one voice
+alone is not the piece. The split is geometric: score7 follows the dominant
+voice, it does not separate melody from accompaniment in the musical sense.
+
+**On a default install that probe never runs.** basic-pitch is in no extra (see
+[Installation](#installation)), its import fails, the failure is caught and
+reported on stderr, and the chain falls straight through to PESTO. The practical
+consequences are worth stating, because they are invisible in the output: the
+material is treated as monophonic whatever it actually is, and `voices`,
+`polyphony` and the level floor described below never appear. Install basic-pitch
+yourself, on a Python where it resolves, to get that route back.
 
 **A high-pass at 180 Hz precedes f0 tracking.** On a synth stem the low pedal (a
 tonic drone, residual bass) dominates salience and captures a monophonic tracker:
@@ -111,12 +122,13 @@ on synthwave material, 77% of the returned notes were the pedal. Cutting below
 bpm`), not a fixed number of seconds. A flat 0.1 s means one seventh of a beat at
 88 BPM, which lets confetti through where a musical floor would not.
 
-**The level floor sits 18 dB below the body of the track.** Below it nothing is
-transcribed, because a fade tail is reverberation rather than played music. The
-figure is a compromise measured on *A Midsummer Nice Dream*, whose fade crosses
--20 dB around 140 s (where transcription starts inventing) while its genuinely
-quiet passages live at -7 dB: low enough to spare those, high enough to cut the
-tail. The console reports how many notes were dropped.
+**The level floor sits 18 dB below the body of the track**, on the basic-pitch
+route only. Below it nothing is transcribed, because a fade tail is reverberation
+rather than played music. The figure is a compromise measured on *A Midsummer
+Nice Dream*, whose fade crosses -20 dB around 140 s (where transcription starts
+inventing) while its genuinely quiet passages live at -7 dB: low enough to spare
+those, high enough to cut the tail. The console reports how many notes were
+dropped.
 
 **Cleanup runs in a fixed order, and the order is not interchangeable.** Same-pitch
 notes separated by less than 80 ms are merged first, since salience flicker
@@ -124,9 +136,10 @@ shreds a held note into confetti rather than into music. Short notes (under
 300 ms) more than ten semitones from *both* neighbours are dropped next, being
 octave or voice flips rather than played notes. Only then are true repetitions
 re-articulated at onsets, and only on the f0 path: skyline notes come from a
-transcription that is already articulated. Velocities come last, from real RMS or
-from basic-pitch amplitude, normalised on the 10th/95th percentiles into 45-112,
-so a MIDI export carries dynamics instead of the flat fallback.
+transcription that is already articulated. Velocities come last, read from the
+RMS envelope on the f0 path and from basic-pitch's per-note amplitude on the
+skyline one, normalised on the 10th/95th percentiles into 45-112, so a MIDI
+export carries dynamics instead of the flat fallback.
 
 ### Key, meter, chords: the arbitrations
 
@@ -153,10 +166,16 @@ subdivision carries real energy (without that guard, two flavours of noise get
 compared). A wrongly ternary reading changes how the whole piece is written down,
 so the bias is toward the more common case.
 
-**Chords.** The published grid is already smoothed: segments shorter than two
-beats are dropped, unless dropping them would empty the grid, in which case the
-raw segmentation is kept. Comparing two analyses means comparing two grids
-filtered the same way.
+**Chords.** The published grid is already smoothed, and not the same way on every
+route. On the cosine fallback, segments shorter than two beats are dropped,
+unless dropping them would empty the grid, in which case the raw segmentation is
+kept. On the BTC and madmom routes nothing is dropped for being short; instead a
+one-beat segment is absorbed into the surrounding chord only when both of its
+neighbours carry the *same* chord — that is jitter from a frame-by-frame
+detector, not a reading. A short chord between two *different* ones is left
+alone, since it may be a real passage and erasing it would invent a simpler
+harmony than the music. `chords_source` says which route produced the grid, and
+comparing two analyses means comparing two grids filtered the same way.
 
 **Structure.** `coarse` is eight windows of **equal duration**, not musical
 sections: it reports how energy is distributed over time, nothing more. The
@@ -231,7 +250,7 @@ Authors and papers for each model are in [Credits](#credits-and-references).
 | Meter | downbeats from the neural tracker (beats per bar) else accent folding on the beat grid; binary/ternary subdivision (6/8, 12/8 vs 2/4-4/4) | Beat This! / madmom |
 | Key | genre-agnostic CNN first; else Krumhansl-Schmuckler (chroma CQT) + chord-function vote + melody-tonic reconciliation | **madmom CNN** > Krumhansl |
 | Chords | bidirectional transformer (large vocabulary: maj/min/7/sus/dim); else deep-chroma+CRF; else cosine template matching on beat-synced CENS chroma | **BTC** > madmom > cosine |
-| Melody | monophonic pitch tracking on an isolated stem (~10 ms); else poly transcription to skyline (C4-C6); else pYIN. Follows the dominant voice, does not separate melody from accompaniment | **PESTO** > skyline > pYIN |
+| Melody | an optional basic-pitch probe (absent by default) routes polyphonic material to a two-voice skyline; otherwise monophonic pitch tracking on an isolated stem (~10 ms); else poly transcription to skyline (C4-C6); else pYIN. Follows the dominant voice, does not separate melody from accompaniment | (basic-pitch) > **PESTO** > skyline > pYIN |
 | Separation | hybrid spectro-temporal source separation; model selectable via `--sep-model` / `sep_model` (htdemucs 4-stem default, htdemucs_ft fine-tuned, htdemucs_6s 6-stem +guitar/piano) | **Demucs** htdemucs |
 | Per-stem rhythm | drum pattern (kick/snare/hats bands folded onto the beat grid), microtiming, swing | in-house (librosa/scipy) |
 | Per-stem texture | spectral flux, centroid variation, percussive ratio (HPSS), energy share, stereo width | in-house (librosa) |
@@ -252,6 +271,7 @@ deterministic fallback chain. Credit belongs to the authors below.
 | **madmom** (beats, downbeats, deep-chroma chords) | S. Böck, F. Korzeniowski, J. Schlüter, F. Krebs, G. Widmer | *madmom: A New Python Audio and Music Signal Processing Library*, ACM MM 2016 |
 | **CNN key** | F. Korzeniowski, G. Widmer | *Genre-Agnostic Key Classification with CNN*, ISMIR 2018 |
 | **PESTO** (melody / pitch) | A. Riou, S. Lattner, G. Hadjeres, G. Peeters | *PESTO: Pitch Estimation with Self-supervised Transposition-equivariant Objective*, ISMIR 2023 |
+| **basic-pitch** (optional polyphony probe) | R. M. Bittner, J. J. Bosch, D. Rubinstein, G. Meseguer-Brocal, S. Ewert (Spotify) | *A Lightweight Instrument-Agnostic Model for Polyphonic Note Transcription and Multipitch Estimation*, ICASSP 2022 |
 | **Demucs** (separation) | S. Rouard, F. Massa, A. Défossez (Meta FAIR) | *Hybrid Transformers for Music Source Separation*, ICASSP 2023 |
 | **piano_transcription** (skyline) | Q. Kong, B. Li, X. Song, Y. Wan, Y. Wang (ByteDance) | *High-resolution Piano Transcription with Pedals by Regressing Onset and Offset Times*, IEEE/ACM TASLP 2021 |
 | **pYIN** (fallback pitch) | M. Mauch, S. Dixon | *pYIN: A Fundamental Frequency Estimator…*, ICASSP 2014 (via librosa) |
