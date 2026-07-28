@@ -30,6 +30,10 @@ melody = [
     "piano_transcription_inference>=0.0.6",
     "pesto-pitch>=2.0",
 ]
+# basic-pitch ouvre la chaîne mélodique (sonde de polyphonie) mais reste hors extra :
+# ses métadonnées exigent tensorflow<2.15.1 sur Linux/py>=3.11, alors que score7 ne
+# charge que son modèle ONNX. Installer sans cette chaîne :
+#   pip install --no-deps basic-pitch onnxruntime
 # Beat/downbeat tracking neuronal (BPM + métrique fiables). Priorité Beat This! (transformer,
 # ISMIR 2024, état de l'art, PyTorch — torch déjà tiré par [melody]) puis madmom (RNN+DBN).
 # madmom PyPI 0.16.1 cassé sur Python 3.12 — installer depuis git :
