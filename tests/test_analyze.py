@@ -145,3 +145,36 @@ def test_no_separation_keeps_the_mix(tmp_path, monkeypatch):
 
     res = analyze_file(str(src), outdir=str(tmp_path / "out"), separate=False, melody=False)
     assert res["harmony_source"] == "mix"
+
+
+def _write_wideband(path, sr=48000, seconds=2.0):
+    """Un grave dominant, plus une composante à 15 kHz — au-dessus du Nyquist
+    de 22 050 Hz, donc absente dès que le signal est ramené à la bande
+    d'analyse. C'est ce qui rend le test capable de distinguer les deux."""
+    t = np.linspace(0, seconds, int(sr * seconds), endpoint=False)
+    y = np.sin(2 * np.pi * 200 * t) + 0.9 * np.sin(2 * np.pi * 15000 * t)
+    sf.write(path, (y / np.max(np.abs(y))).astype(np.float32), sr)
+
+
+def test_spectral_profile_reads_the_whole_band(tmp_path):
+    """Le profil spectral doit voir le signal natif, pas le mono d'analyse.
+
+    Nourri à 22 050 Hz, Nyquist coupait à 11 kHz : la composante à 15 kHz
+    disparaissait et le centroïde retombait vers le fondamental, un biais
+    systématique vers le sombre. Le test échoue sur l'ancien code deux fois —
+    `sr_hz` n'existait pas, et le centroïde restait proche de 200 Hz.
+    """
+    wav = tmp_path / "wideband.wav"
+    _write_wideband(wav)
+    res = analyze_file(str(wav), outdir=str(tmp_path / "out"),
+                       separate=False, melody=False)
+    spectral = res["spectral"]
+
+    # La mesure d'abord : c'est elle que le correctif répare. Si `sr_hz` était
+    # vérifié en premier, un ajout du champ sans réparation de la bande ferait
+    # passer le test pour la mauvaise raison.
+    # Le seuil est loin des deux valeurs en jeu (~200 Hz amputé, plusieurs
+    # kHz entier) : il tranche sans dépendre de la fenêtre d'analyse.
+    assert spectral["centroid_hz"] > 2000
+    # Le taux natif est rendu : deux analyses ne se comparent qu'à bande égale.
+    assert spectral["sr_hz"] == 48000
