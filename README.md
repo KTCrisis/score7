@@ -192,6 +192,17 @@ authoritative detector is not corrected by a weaker signal. The JSON keeps
 `krumhansl_only` and `corrected` so the correction can be audited rather than
 trusted.
 
+**Every key detector here speaks a 24-word language: twelve tonics, major or
+minor.** No mode. A modal piece therefore comes out named after the major or
+minor scale that shares its notes, which is a limit of vocabulary and not a
+measurement error. Daft Punk's *Veridis Quo* is read `C major` at 0.838 by the
+CNN; it is in D dorian, and the two use the same seven notes. What separates
+them is the sixth degree and where the music comes to rest, neither of which a
+24-class classifier can express. Read `key` as *the scale*, and expect a modal
+piece to be named by its relative. Settling the tonic takes a reading, which is
+what a review by an interactive session is for — and what
+`provenance.verified` records when one has happened.
+
 **Meter.** The binary/ternary decision is deliberately biased toward binary:
 ternary wins only above 1.1 times the binary strength, and only if the
 subdivision carries real energy (without that guard, two flavours of noise get
@@ -299,7 +310,7 @@ Authors and papers for each model are in [Credits](#credits-and-references).
 |-------|-----------|-------------------|
 | Tempo / beats | neural tracker first, else librosa; BPM = median inter-beat interval; octave candidates (T/2, T, 2T) exposed with their tempogram strength | **Beat This!** > madmom > librosa |
 | Meter | downbeats from the neural tracker (beats per bar) else accent folding on the beat grid; binary/ternary subdivision (6/8, 12/8 vs 2/4-4/4) | Beat This! / madmom |
-| Key | genre-agnostic CNN first; else Krumhansl-Schmuckler (chroma CQT) + chord-function vote + melody-tonic reconciliation | **madmom CNN** > Krumhansl |
+| Key | genre-agnostic CNN first; else Krumhansl-Schmuckler (chroma CQT) + chord-function vote + melody-tonic reconciliation. 24 classes only (tonic + major/minor): a modal piece is named by its relative scale | **madmom CNN** > Krumhansl |
 | Chords | bidirectional transformer (large vocabulary: maj/min/7/sus/dim); else deep-chroma+CRF; else cosine template matching on beat-synced CENS chroma | **BTC** > madmom > cosine |
 | Melody | a basic-pitch probe (installed apart, see Installation) routes polyphonic material to a two-voice skyline; otherwise monophonic pitch tracking on an isolated stem (~10 ms); else poly transcription to skyline (C4-C6); else pYIN. Follows the dominant voice, does not separate melody from accompaniment | basic-pitch > **PESTO** > skyline > pYIN |
 | Separation | hybrid spectro-temporal source separation; model selectable via `--sep-model` / `sep_model` (htdemucs 4-stem default, htdemucs_ft fine-tuned, htdemucs_6s 6-stem +guitar/piano) | **Demucs** htdemucs |
