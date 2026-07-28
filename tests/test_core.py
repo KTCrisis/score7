@@ -223,3 +223,33 @@ def test_merge_grid_covers_the_track_in_every_shape():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_annotate_bass_roots_reads_what_is_played_below(tmp_path):
+    """Deux segments, deux fondamentales de basse distinctes : la mesure doit les
+    séparer. C'est ce qui distingue un accord de son renversement, et rien ne
+    permet de le retrouver depuis la seule grille."""
+    import soundfile as sf
+
+    sr = 22050
+    def tone(f, d):
+        t = np.linspace(0, d, int(sr * d), endpoint=False)
+        return (0.4 * np.sin(2 * np.pi * f * t)).astype(np.float32)
+
+    # 2 s de mi grave (E1, 41.2 Hz) puis 2 s de la grave (A1, 55 Hz)
+    sf.write(tmp_path / "bass.wav", np.concatenate([tone(41.2, 2.0), tone(55.0, 2.0)]), sr)
+    beat_times = np.arange(9) * 0.5          # 8 beats de 0,5 s
+    grid = [{"chord": "E", "start_beat": 0, "beats": 4},
+            {"chord": "A", "start_beat": 4, "beats": 4}]
+
+    out = core.annotate_bass_roots(grid, str(tmp_path / "bass.wav"), beat_times)
+    assert [s["bass_root"] for s in out] == ["E", "A"]
+
+
+def test_annotate_bass_roots_stays_silent_when_it_cannot_measure(tmp_path):
+    """Stem absent : le champ reste absent. Une fondamentale de repli se lirait
+    comme une basse observée, ce qu'elle ne serait pas."""
+    grid = [{"chord": "E", "start_beat": 0, "beats": 4}]
+    out = core.annotate_bass_roots(grid, str(tmp_path / "nope.wav"), np.arange(5) * 0.5)
+    assert "bass_root" not in out[0]
+    assert core.annotate_bass_roots([], "x", np.arange(3)) == []

@@ -208,6 +208,13 @@ from a frame-by-frame detector, not a reading. A short chord between two
 *different* ones is left alone there, since it may be a real passage and erasing
 it would invent a simpler harmony than the music.
 
+**Inversions.** When the separation ran, each segment also carries `bass_root`,
+the pitch class actually held by the `bass` stem underneath it (median CQT chroma
+over the segment). A chord symbol names three notes without saying which one is
+at the bottom, and nothing downstream can recover it: a piano reduction needs it
+for the left hand, a reader for what they are hearing. Without stems the field is
+simply absent, never guessed.
+
 `chords_source` says which route produced the grid. Only the cosine route carries
 a `conf` field, and it is a real one (the mean cosine similarity of the segment).
 BTC and madmom return no per-segment confidence, so none is published: a constant
