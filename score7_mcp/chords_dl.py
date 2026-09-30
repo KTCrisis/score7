@@ -148,51 +148,168 @@ def _btc_model():
     return model, ckpt["mean"], ckpt["std"], idx2voca_chord(), cfg.model["timestep"], device, cfg
 
 
-def try_btc(path: str, beat_times) -> list | None:
-    """Grille d'accords BTC alignée sur les beats, ou None si le paquet/les poids
-    manquent ou si l'inférence échoue (l'appelant retombe sur madmom puis le cosinus)."""
+#: lissage des probabilités BTC avant décision, en secondes : sous ~0,4 s un
+#: changement d'accord est du scintillement trame à trame, pas une lecture
+_SMOOTH_S = 0.4
+#: un segment plus court que ceci est rendu au voisin le plus probable
+_MIN_SEG_S = 0.3
+#: nombre de candidats publiés par segment
+_TOP_K = 3
+
+
+def btc_probabilities(path: str):
+    """Distribution BTC par trame (trames × 170), durée d'une trame (s), durée du
+    morceau (s) et table d'étiquettes ; None si BTC est indisponible ou échoue.
+
+    try_btc n'en gardait que l'argmax : la probabilité de la réponse, et les
+    réponses suivantes, étaient jetées. Elles disent pourtant à quel point BTC
+    est sûr (banc du 30/09 : AUC 0,75-0,78 entre justes et fausses)."""
     try:
         import torch
+        import torch.nn.functional as F
         from score7_mcp._btc.features import audio_file_to_features
     except Exception:
         return None
     try:
         model, mean, std, idx2c, nts, device, cfg = _btc_model()
-        feat, fps, song_len = audio_file_to_features(path, cfg)
+        feat, spf, song_len = audio_file_to_features(path, cfg)
         feat = (feat.T - mean) / std
         pad = nts - (feat.shape[0] % nts)
         feat = np.pad(feat, ((0, pad), (0, 0)), "constant")
-        ninst = feat.shape[0] // nts
-
-        raw, start, prev = [], 0.0, None
+        out = []
         with torch.no_grad():
             x = torch.tensor(feat, dtype=torch.float32).unsqueeze(0).to(device)
-            for t in range(ninst):
+            for t in range(feat.shape[0] // nts):
                 enc, _ = model.self_attn_layers(x[:, nts * t:nts * (t + 1), :])
-                pred, _ = model.output_layer(enc)
-                pred = pred.squeeze()
-                for i in range(nts):
-                    idx = int(pred[i].item())
-                    if prev is None:
-                        prev = idx
-                        continue
-                    if idx != prev:
-                        raw.append((start, fps * (nts * t + i), prev))
-                        start = fps * (nts * t + i)
-                        prev = idx
-            if prev is not None:
-                # clamp à la durée réelle : feat a été zero-paddé, ne pas étirer le dernier
-                # accord jusque dans le silence du padding (~10 s sur-comptés autrement)
-                raw.append((start, min(fps * ninst * nts, song_len), prev))
+                logits = model.output_layer.output_projection(enc)
+                out.append(F.softmax(logits, -1).squeeze(0).cpu().numpy())
+        probs = np.concatenate(out)[: int(np.ceil(song_len / spf))]
+        return probs, float(spf), float(song_len), idx2c
     except Exception:
         return None
 
-    segs = [(s, e, *_label_to_score7(idx2c[idx])) for s, e, idx in raw]
-    grid = _segments_to_grid(segs, beat_times)
-    return grid or None
+
+def _fold_majmin(idx2c) -> tuple[list[str], np.ndarray]:
+    """Matrice 170 → étiquettes compactes majeur/mineur (« N » gardé à part)."""
+    from score7_mcp import theory
+    labels = sorted({theory.compact(idx2c[i]) for i in range(len(idx2c))})
+    fold = np.zeros((len(idx2c), len(labels)))
+    for i in range(len(idx2c)):
+        fold[i, labels.index(theory.compact(idx2c[i]))] = 1.0
+    return labels, fold
 
 
-# --------------------------------------------------------------------------- madmom
+def btc_segments(probs, spf: float, song_len: float, idx2c) -> list[dict]:
+    """Segments datés en SECONDES, chacun avec sa confiance et ses candidats.
+
+    La décision se prend sur les probabilités lissées, pas sur la grille de
+    beats : un suivi de beats qui bascule en demi-tempo (L'éveil des Sirènes :
+    332 beats trouvés sur 400) ne déplace plus les accords.
+    `confidence` = probabilité moyenne de l'étiquette compacte retenue par BTC,
+    c'est-à-dire sa certitude sur le segment (un départage par le chroma la laisse
+    telle quelle : elle dit que BTC hésitait) ;
+    `candidates` = les meilleures étiquettes compactes du segment."""
+    labels, fold = _fold_majmin(idx2c)
+    n = probs.shape[0]
+    w = max(1, int(round(_SMOOTH_S / spf)))
+    kernel = np.ones(w) / w
+    smooth = np.vstack([np.convolve(probs[:, j], kernel, mode="same") for j in range(probs.shape[1])]).T
+    frame_label = (smooth @ fold).argmax(axis=1)
+
+    # segments bruts : changements de l'étiquette compacte
+    bounds = [0] + [i for i in range(1, n) if frame_label[i] != frame_label[i - 1]] + [n]
+    segs = [[bounds[i], bounds[i + 1]] for i in range(len(bounds) - 1)]
+
+    # un segment trop court rejoint le voisin qui l'explique le mieux
+    min_frames = max(1, int(round(_MIN_SEG_S / spf)))
+    changed = True
+    while changed and len(segs) > 1:
+        changed = False
+        for i, (a, b) in enumerate(segs):
+            if b - a >= min_frames:
+                continue
+            mass = (smooth[a:b] @ fold).sum(axis=0)
+            left = segs[i - 1] if i > 0 else None
+            right = segs[i + 1] if i + 1 < len(segs) else None
+            def score(nb):
+                return -1.0 if nb is None else float(mass[frame_label[nb[0]]])
+            nb = left if score(left) >= score(right) else right
+            nb[0], nb[1] = min(nb[0], a), max(nb[1], b)
+            segs.pop(i)
+            changed = True
+            break
+
+    out = []
+    for a, b in segs:
+        p_full = probs[a:b].mean(axis=0)
+        p_mm = p_full @ fold
+        order = np.argsort(-p_mm)
+        best = labels[int(order[0])]
+        if best == "N":
+            continue
+        # étiquette riche : la classe BTC la plus probable parmi celles qui se réduisent à `best`
+        members = [i for i in range(len(idx2c)) if fold[i, labels.index(best)]]
+        full = idx2c[max(members, key=lambda i: p_full[i])]
+        full = best if full in ("N", "X") else full
+        out.append({
+            "chord": best, "chord_full": full,
+            "time": round(a * spf, 2), "end": round(min(b * spf, song_len), 2),
+            "confidence": round(float(p_mm[order[0]]), 3),
+            "candidates": [{"chord": labels[int(j)], "p": round(float(p_mm[j]), 3)}
+                           for j in order[:_TOP_K] if labels[int(j)] != "N"],
+            "source": "btc",
+        })
+    # deux voisins identiques (séparés par un « N » retiré) : fusion
+    merged = []
+    for s in out:
+        if merged and merged[-1]["chord"] == s["chord"] and abs(merged[-1]["end"] - s["time"]) < 1e-6:
+            merged[-1]["end"] = s["end"]
+        else:
+            merged.append(s)
+    return merged
+
+
+def attach_beats(segs: list[dict], beat_times) -> list[dict]:
+    """Ajoute start_beat / beats (affichage, consommateurs existants) à des segments
+    datés en secondes ; les secondes restent la référence."""
+    bt = np.asarray(beat_times, dtype=float)
+    for s in segs:
+        if bt.size == 0:
+            s["start_beat"], s["beats"] = 0, 1
+            continue
+        sb = max(int(np.searchsorted(bt, s["time"], side="right") - 1), 0)
+        eb = max(int(np.searchsorted(bt, s["end"], side="right") - 1), sb)
+        s["start_beat"], s["beats"] = sb, max(eb - sb, 1)
+    return segs
+
+
+def tie_break(segs: list[dict], chroma: np.ndarray, frame_times, threshold: float = 0.8) -> list[dict]:
+    """Quand BTC hésite (confiance < threshold), départage ses candidats par le chroma.
+
+    Banc du 30/09 : le chroma seul, en juge, dégrade la grille (le lead et les
+    arpèges tirent toujours vers un concurrent) ; en départage parmi les
+    candidats de BTC, sur ses seuls segments incertains, il la corrige
+    (Split Echo 70,3 → 73,4 %, L'éveil 60,2 → 68,5 %). Tous les candidats sont
+    admis, même peu probables : les probabilités basses de BTC sont mal calibrées
+    quand il hésite, et un plancher à 0,05 ou 0,10 coûte 1 à 3 points."""
+    from score7_mcp import theory
+    ft = np.asarray(frame_times, dtype=float)
+    for s in segs:
+        if s.get("confidence", 1.0) >= threshold or len(s.get("candidates", [])) < 2:
+            continue
+        sl = chroma[:, (ft >= s["time"]) & (ft < s["end"])]
+        if sl.size == 0:
+            continue
+        obs = sl.mean(axis=1)
+        pick = max(s["candidates"], key=lambda c: theory.fit(obs, c["chord"]))["chord"]
+        if pick != s["chord"]:
+            s["chord_btc"] = s["chord"]
+            s["chord"] = pick
+            s["chord_full"] = pick
+            s["source"] = "btc+chroma"
+    return segs
+
+
 def try_madmom_chords(path: str, beat_times) -> list | None:
     """Grille d'accords madmom (deep chroma + CRF, Korzeniowski/Widmer ; maj/min, extra
     [rhythm]). Fallback si BTC est indisponible. None si madmom absent ou échoue."""
@@ -215,9 +332,11 @@ def estimate_chords_chain(path, beat_times, fallback):
     """BTC > madmom > template matching. `fallback` est un callable sans argument
     (typiquement core.estimate_chords déjà bindé) renvoyant la grille cosinus.
     Renvoie (grille, source)."""
-    grid = try_btc(path, beat_times)
-    if grid:
-        return grid, "btc"
+    res = btc_probabilities(path)
+    if res is not None:
+        segs = btc_segments(*res)
+        if segs:
+            return attach_beats(segs, beat_times), "btc"
     grid = try_madmom_chords(path, beat_times)
     if grid:
         return grid, "madmom"

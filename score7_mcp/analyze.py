@@ -139,6 +139,11 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
     if dl_chords:
         from score7_mcp import chords_dl
         chords, chords_source = chords_dl.estimate_chords_chain(harm_path, beat_times, cosine_grid)
+        if chords_source == "btc":
+            # BTC hésite : départage de ses candidats par le chroma du même mix harmonique
+            chroma = librosa.feature.chroma_cqt(y=y_h, sr=sr)
+            ftimes = librosa.frames_to_time(np.arange(chroma.shape[1]), sr=sr)
+            chords = chords_dl.tie_break(chords, chroma, ftimes)
     else:
         chords, chords_source = cosine_grid(), "template"
 

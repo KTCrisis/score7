@@ -441,10 +441,13 @@ def annotate_bass_roots(grid: list, bass_path: str, beat_times, sr: int = 22050)
     chroma = librosa.feature.chroma_cqt(y=y, sr=sr_b)
     times = librosa.frames_to_time(np.arange(chroma.shape[1]), sr=sr_b)
     for seg in grid:
-        b0 = int(seg["start_beat"])
-        t0 = float(bt[b0]) if b0 < len(bt) else float(bt[-1])
-        b1 = b0 + int(seg.get("beats", 1))
-        t1 = float(bt[b1]) if b1 < len(bt) else float(times[-1]) + 1.0
+        if "end" in seg:  # segment daté en secondes (BTC) : les secondes font foi
+            t0, t1 = float(seg["time"]), float(seg["end"])
+        else:
+            b0 = int(seg["start_beat"])
+            t0 = float(bt[b0]) if b0 < len(bt) else float(bt[-1])
+            b1 = b0 + int(seg.get("beats", 1))
+            t1 = float(bt[b1]) if b1 < len(bt) else float(times[-1]) + 1.0
         sl = chroma[:, (times >= t0) & (times < t1)]
         if sl.size == 0:
             continue
