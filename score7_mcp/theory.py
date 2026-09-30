@@ -50,6 +50,13 @@ def compact(label: str) -> str:
     return NOTE_NAMES[root] + ("m" if qual in MINOR_QUALITIES else "")
 
 
+def mirex(compact_label: str) -> str:
+    """« Am » → « A:min », « F » → « F » : la forme que lisent les consommateurs de chord_full."""
+    if compact_label.endswith("m") and compact_label[:-1] in NOTE_NAMES:
+        return compact_label[:-1] + ":min"
+    return compact_label
+
+
 def pitch_classes(label: str) -> set[int]:
     """Classes de hauteur de l'accord ; « Fm » (compact) est accepté comme « F:min »."""
     if label.endswith("m") and ":" not in label and label[:-1] in NOTE_NAMES:

@@ -24,3 +24,7 @@ def test_fit_prefers_the_played_chord():
     obs[[2, 5, 9]] = 1.0                    # ré fa la
     assert theory.fit(obs, "Dm") > theory.fit(obs, "A#")
     assert theory.fit(np.zeros(12), "Dm") == 0.0
+
+
+def test_mirex_from_compact():
+    assert theory.mirex("Am") == "A:min" and theory.mirex("F#") == "F#" and theory.mirex("C#m") == "C#:min"

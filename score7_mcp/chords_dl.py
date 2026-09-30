@@ -305,7 +305,7 @@ def tie_break(segs: list[dict], chroma: np.ndarray, frame_times, threshold: floa
         if pick != s["chord"]:
             s["chord_btc"] = s["chord"]
             s["chord"] = pick
-            s["chord_full"] = pick
+            s["chord_full"] = theory.mirex(pick)  # « A:min », pas « Am » : un lecteur de MIREX y verrait une fondamentale « Am »
             s["source"] = "btc+chroma"
     return segs
 
