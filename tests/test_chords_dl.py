@@ -108,3 +108,4 @@ def test_tie_break_only_on_uncertain_segments():
     out = chords_dl.tie_break([dict(sure), dict(unsure)], chroma, ft)
     assert out[0]["chord"] == "C"                                   # BTC sûr : on ne touche pas
     assert out[1]["chord"] == "Am" and out[1]["source"] == "btc+chroma" and out[1]["chord_btc"] == "C"
+    assert out[1]["chord_full"] == "A:min"
