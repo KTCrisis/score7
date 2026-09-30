@@ -83,3 +83,18 @@ def fit(chroma: np.ndarray, label: str) -> float:
     t = template(label)
     n = float(np.linalg.norm(chroma))
     return float(chroma @ t / n) if n > 0 and t.any() else 0.0
+
+
+def key_scale(root: str, mode: str) -> set[int]:
+    """Classes de hauteur de la tonalité ; le mineur inclut la sensible (mineur
+    harmonique : le V majeur est dans le ton, un accord hors ton ne l'est pas)."""
+    if root not in NOTE_NAMES:
+        return set(range(12))
+    r = NOTE_NAMES.index(root)
+    steps = (0, 2, 4, 5, 7, 9, 11) if mode == "major" else (0, 2, 3, 5, 7, 8, 10, 11)
+    return {(r + i) % 12 for i in steps}
+
+
+def in_key(label: str, scale: set[int]) -> bool:
+    pcs = pitch_classes(label)
+    return bool(pcs) and pcs <= scale

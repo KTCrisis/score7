@@ -28,3 +28,9 @@ def test_fit_prefers_the_played_chord():
 
 def test_mirex_from_compact():
     assert theory.mirex("Am") == "A:min" and theory.mirex("F#") == "F#" and theory.mirex("C#m") == "C#:min"
+
+
+def test_key_scale_and_in_key():
+    em = theory.key_scale("E", "minor")
+    assert theory.in_key("Em", em) and theory.in_key("C", em) and theory.in_key("B", em)   # V major via the leading tone
+    assert not theory.in_key("F#", em) and not theory.in_key("Dm", em)
