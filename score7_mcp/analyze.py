@@ -144,6 +144,12 @@ def analyze_file(path: str, sr: int = 22050, title: str | None = None,
             chroma = librosa.feature.chroma_cqt(y=y_h, sr=sr)
             ftimes = librosa.frames_to_time(np.arange(chroma.shape[1]), sr=sr)
             chords = chords_dl.tie_break(chords, chroma, ftimes)
+            # octave de tempo disputée : la durée des accords la tranche
+            bpb = (meter or {}).get("beats_per_bar") or 4
+            tempo2, bt2 = core.arbitrate_tempo_octave(tempo, beat_times, chords, beats_per_bar=bpb)
+            if tempo2 is not tempo:
+                tempo, beat_times = tempo2, bt2
+                chords = chords_dl.attach_beats(chords, beat_times)
     else:
         chords, chords_source = cosine_grid(), "template"
 

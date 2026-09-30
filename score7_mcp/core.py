@@ -279,6 +279,65 @@ def estimate_rhythm(y, sr, path=None):
     return tempo, meter, beats, beat_times
 
 
+def arbitrate_tempo_octave(tempo: dict, beat_times, chords: list, beats_per_bar: int = 4,
+                           min_chords: int = 8, tol: float = 0.15, dispute: float = 0.8):
+    """Quand l'octave du tempo est disputée, la durée des accords la tranche.
+
+    Les trackers hésitent entre T, T/2 et 2T avec des forces voisines ; sur un
+    morceau à batterie rapide ils prennent le double (C:\\AR?A_M4TH : 176,5 au
+    lieu de ~88). Or une boucle change d'accord, le plus souvent, à chaque
+    mesure : sur quatre morceaux au tempo connu, l'accord médian (parmi les
+    accords sûrs, datés en secondes) dure 1,00 à 1,03 mesure au BON tempo, et
+    0,5 ou 2 mesures aux octaves voisines.
+
+    Prudente : n'agit que si les deux meilleurs candidats sont à moins de
+    `dispute` l'un de l'autre, s'il y a au moins `min_chords` accords sûrs, si le
+    tempo détecté ne tombe pas déjà sur une mesure par accord, et seulement vers
+    un candidat à l'octave (×2 ou ÷2) qui, lui, y tombe (±`tol`). La grille de
+    beats suit : un beat sur deux (la phase la mieux alignée sur les changements
+    d'accord) ou les milieux intercalés. Rend (tempo, beat_times), inchangés si
+    rien n'est tranché ; sinon `octave_by`, `bpm_detected` et `chord_bars` le disent."""
+    cands = sorted(tempo.get("bpm_candidates") or [], key=lambda c: -c.get("strength", 0))
+    if len(cands) < 2 or cands[1]["strength"] < dispute * cands[0]["strength"]:
+        return tempo, beat_times
+    d = [c["end"] - c["time"] for c in chords
+         if "end" in c and c.get("confidence", 0) >= 0.8]
+    if len(d) < min_chords:
+        return tempo, beat_times
+    med = float(np.median(d))
+    bpm = float(tempo["bpm"])
+
+    def bars(b):
+        return med / (beats_per_bar * 60.0 / b)
+
+    if abs(bars(bpm) - 1.0) <= tol:
+        return tempo, beat_times
+    octave = [c["bpm"] for c in cands
+              if min(abs(c["bpm"] / bpm - 2.0), abs(c["bpm"] / bpm - 0.5)) < 0.03]
+    fits = sorted((abs(bars(b) - 1.0), b) for b in octave if abs(bars(b) - 1.0) <= tol)
+    if not fits:
+        return tempo, beat_times
+    new = fits[0][1]
+    bt = np.asarray(beat_times, dtype=float)
+    if new < bpm:
+        changes = np.array([c["time"] for c in chords])
+
+        def misalign(phase):
+            grid = bt[phase::2]
+            if grid.size == 0 or changes.size == 0:
+                return np.inf
+            return float(np.mean(np.min(np.abs(changes[:, None] - grid[None, :]), axis=1)))
+
+        new_bt = bt[min((0, 1), key=misalign)::2]
+    else:
+        mids = (bt[:-1] + bt[1:]) / 2.0
+        new_bt = np.sort(np.concatenate([bt, mids]))
+    out = dict(tempo)
+    out.update({"bpm": round(new, 1), "bpm_detected": tempo["bpm"],
+                "octave_by": "harmonic_rhythm", "chord_bars": round(bars(new), 2)})
+    return out, new_bt
+
+
 # --------------------------------------------------------------------------- tonalité
 def _krumhansl_scores(chroma_mean):
     """24 corrélations (12 maj + 12 min) ; renvoie deux vecteurs (12,) normalisés [0,1]."""
