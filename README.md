@@ -252,6 +252,16 @@ derived per beat from the notes, sevenths reduced to major/minor):
 BTC's probability separates right from wrong segments with an AUC of 0.75 to
 0.78 on these two tracks. Two tracks are a start, not a benchmark.
 
+**Tempo octave.** Beat trackers often hesitate between T, T/2 and 2T with close
+strengths, and a fast hi-hat pulls them to the double. When the two best
+candidates are within 20 % of each other, the chords decide: on four tracks of
+known tempo, the median confident chord lasts one bar (1.00 to 1.03) at the
+right tempo, half a bar or two bars at the neighbouring octaves. The tempo moves
+to the octave candidate where a chord lasts one bar, only if the detected one
+does not, and the beat grid follows (every other beat, or the midpoints). The
+result says so: `octave_by: "harmonic_rhythm"`, `bpm_detected`, `chord_bars`.
+On those four tracks it moved one tempo (176.5 -> 88.2) and left three alone.
+
 **Inversions.** When the separation ran, each segment also carries `bass_root`,
 the pitch class actually held by the `bass` stem underneath it (median CQT chroma
 over the segment). A chord symbol names three notes without saying which one is

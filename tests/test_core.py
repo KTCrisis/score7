@@ -253,3 +253,30 @@ def test_annotate_bass_roots_stays_silent_when_it_cannot_measure(tmp_path):
     out = core.annotate_bass_roots(grid, str(tmp_path / "nope.wav"), np.arange(5) * 0.5)
     assert "bass_root" not in out[0]
     assert core.annotate_bass_roots([], "x", np.arange(3)) == []
+
+
+def _loop_chords(n, dur):
+    return [{"chord": "Em", "time": i * dur, "end": (i + 1) * dur, "confidence": 0.9} for i in range(n)]
+
+
+def test_tempo_octave_arbitrated_by_chord_length():
+    """176,5 détecté, 88,2 en candidat voisin, un accord toutes les 2,73 s : c'est
+    une mesure à 88, deux à 176. La grille garde un beat sur deux."""
+    tempo = {"bpm": 176.5, "bpm_candidates": [{"bpm": 176.5, "strength": 0.368},
+                                             {"bpm": 353.0, "strength": 0.342},
+                                             {"bpm": 88.2, "strength": 0.29}]}
+    tempo["bpm_candidates"][2]["strength"] = 0.33   # dispute: within 20 % of the best
+    bt = [i * 60 / 176.5 for i in range(400)]
+    out, nbt = core.arbitrate_tempo_octave(tempo, bt, _loop_chords(20, 2.73))
+    assert out["bpm"] == 88.2 and out["octave_by"] == "harmonic_rhythm" and out["bpm_detected"] == 176.5
+    assert len(nbt) == 200
+
+
+def test_tempo_left_alone_when_it_already_fits_or_is_not_disputed():
+    fits = {"bpm": 107.1, "bpm_candidates": [{"bpm": 107.1, "strength": 0.35}, {"bpm": 214.2, "strength": 0.33}]}
+    bt = [i * 60 / 107.1 for i in range(100)]
+    out, nbt = core.arbitrate_tempo_octave(fits, bt, _loop_chords(20, 2.31))
+    assert out is fits and nbt is bt
+    clear = {"bpm": 176.5, "bpm_candidates": [{"bpm": 176.5, "strength": 0.9}, {"bpm": 88.2, "strength": 0.2}]}
+    out, _ = core.arbitrate_tempo_octave(clear, bt, _loop_chords(20, 2.73))
+    assert out is clear
