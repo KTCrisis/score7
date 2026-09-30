@@ -109,3 +109,19 @@ def test_tie_break_only_on_uncertain_segments():
     assert out[0]["chord"] == "C"                                   # BTC sûr : on ne touche pas
     assert out[1]["chord"] == "Am" and out[1]["source"] == "btc+chroma" and out[1]["chord_btc"] == "C"
     assert out[1]["chord_full"] == "A:min"
+
+
+def test_tie_break_never_picks_an_out_of_key_candidate():
+    """F#m hésitant, candidat F# (un la#) mieux ajusté au chroma : en mi mineur,
+    le chroma ne départage qu'entre accords du ton, donc il garde F#m ou prend un
+    candidat du ton, jamais F#."""
+    import numpy as np
+    chroma = np.zeros((12, 20))
+    chroma[[6, 10, 1], :] = 1.0         # fa# la# do# : F# major, out of E minor
+    ft = np.arange(20) * 0.1
+    seg = {"chord": "F#m", "time": 0.0, "end": 2.0, "confidence": 0.74, "source": "btc",
+           "candidates": [{"chord": "F#m", "p": 0.74}, {"chord": "D", "p": 0.07}, {"chord": "F#", "p": 0.05}]}
+    free = chords_dl.tie_break([dict(seg)], chroma, ft)
+    assert free[0]["chord"] == "F#"                                   # the old behaviour
+    keyed = chords_dl.tie_break([dict(seg)], chroma, ft, key={"root": "E", "mode": "minor"})
+    assert keyed[0]["chord"] in ("F#m", "D") and keyed[0]["chord"] != "F#"

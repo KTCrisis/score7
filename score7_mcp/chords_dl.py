@@ -283,7 +283,8 @@ def attach_beats(segs: list[dict], beat_times) -> list[dict]:
     return segs
 
 
-def tie_break(segs: list[dict], chroma: np.ndarray, frame_times, threshold: float = 0.8) -> list[dict]:
+def tie_break(segs: list[dict], chroma: np.ndarray, frame_times, threshold: float = 0.8,
+              key: dict | None = None) -> list[dict]:
     """Quand BTC hésite (confiance < threshold), départage ses candidats par le chroma.
 
     Banc du 30/09 : le chroma seul, en juge, dégrade la grille (le lead et les
@@ -294,14 +295,23 @@ def tie_break(segs: list[dict], chroma: np.ndarray, frame_times, threshold: floa
     quand il hésite, et un plancher à 0,05 ou 0,10 coûte 1 à 3 points."""
     from score7_mcp import theory
     ft = np.asarray(frame_times, dtype=float)
+    scale = theory.key_scale(key["root"], key["mode"]) if key else None
     for s in segs:
         if s.get("confidence", 1.0) >= threshold or len(s.get("candidates", [])) < 2:
             continue
+        cands = s["candidates"]
+        if scale is not None:
+            # le chroma ne départage qu'entre accords du ton : remplacer le premier
+            # choix de BTC par un candidat improbable ET étranger au ton ajoutait des
+            # couacs (C:\\AR?A_M4TH ambient : F#m 0,74 remplacé par F# 0,05, un la#)
+            cands = [c for c in cands if theory.in_key(c["chord"], scale)]
+            if not cands:
+                continue
         sl = chroma[:, (ft >= s["time"]) & (ft < s["end"])]
         if sl.size == 0:
             continue
         obs = sl.mean(axis=1)
-        pick = max(s["candidates"], key=lambda c: theory.fit(obs, c["chord"]))["chord"]
+        pick = max(cands, key=lambda c: theory.fit(obs, c["chord"]))["chord"]
         if pick != s["chord"]:
             s["chord_btc"] = s["chord"]
             s["chord"] = pick
