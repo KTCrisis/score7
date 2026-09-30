@@ -220,11 +220,37 @@ What differs is the threshold and the guard. The cosine fallback absorbs
 everything under two beats, because template matching on chroma is noisy at that
 scale; if no segment reaches the threshold the raw segmentation is kept, since a
 grid that is noise throughout should say so rather than collapse into one long
-chord nobody played. On the BTC and madmom routes only one-beat segments are
+chord nobody played. On the madmom route only one-beat segments are
 absorbed, and only when both neighbours carry the *same* chord: that is jitter
 from a frame-by-frame detector, not a reading. A short chord between two
 *different* ones is left alone there, since it may be a real passage and erasing
 it would invent a simpler harmony than the music.
+
+**The BTC route is dated in seconds, and says how sure it is.** BTC computes a
+probability for each of its 170 chords at every frame. score7 keeps that
+distribution instead of its argmax: probabilities are smoothed over 0.4 s,
+reduced to major/minor, and cut into segments at the changes, dated by `time`
+and `end` in seconds; `start_beat` and `beats` are derived from them for display.
+The beat grid no longer places the chords, so a beat tracker that halves the
+tempo in a slow passage no longer shifts them. Each segment carries
+`confidence` (BTC's own probability for its choice), `candidates` (its best
+three readings) and `source`. When `confidence` is below 0.8, the candidates are
+weighed against the chroma of the same harmonic mix, and the best fit wins
+(`source: "btc+chroma"`, BTC's first choice kept in `chord_btc`). On its own the
+chroma is a poor judge of a dense mix (the lead and the arpeggios always pull it
+towards a neighbour); as a tie-breaker inside BTC's short list, on the segments
+BTC is unsure of, it corrects.
+
+Measured against the exact notes of two Renoise projects (reference grid
+derived per beat from the notes, sevenths reduced to major/minor):
+
+| | before | after |
+|---|---|---|
+| *Split Echo* (synthwave) | 67.9 % | 72.0 % |
+| *L'éveil des Sirènes* (orchestral, slow) | 49.0 % | 65.0 % |
+
+BTC's probability separates right from wrong segments with an AUC of 0.75 to
+0.78 on these two tracks. Two tracks are a start, not a benchmark.
 
 **Inversions.** When the separation ran, each segment also carries `bass_root`,
 the pitch class actually held by the `bass` stem underneath it (median CQT chroma
@@ -233,11 +259,10 @@ at the bottom, and nothing downstream can recover it: a piano reduction needs it
 for the left hand, a reader for what they are hearing. Without stems the field is
 simply absent, never guessed.
 
-`chords_source` says which route produced the grid. Only the cosine route carries
-a `conf` field, and it is a real one (the mean cosine similarity of the segment).
-BTC and madmom return no per-segment confidence, so none is published: a constant
-1.0 reads as measured certainty on the most reliable route of the three, which is
-the one place a filler value does the most damage.
+`chords_source` says which route produced the grid. The cosine route carries a
+`conf` field (the mean cosine similarity of the segment), the BTC route a
+`confidence` (BTC's own probability). madmom returns no per-segment confidence,
+so none is published there: a constant 1.0 would read as measured certainty.
 
 **Structure.** `coarse` is eight windows of **equal duration**, not musical
 sections: it reports how energy is distributed over time, nothing more. The

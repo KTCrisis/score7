@@ -48,6 +48,18 @@ def render_markdown(r: dict) -> str:
             for s in grid[:40]:
                 t = f"{s['time']:.1f}" if s.get("time") is not None else "-"
                 L.append(f"| {t} | **{s['chord']}** | {s['beats']} | {s['conf']:.2f} |")
+        elif any("confidence" in s for s in grid):
+            # BTC : sa propre probabilité, et les candidats quand il hésite
+            L.append("| Temps (s) | Accord | Beats | Confiance | Alternatives |")
+            L.append("|-----------|--------|-------|-----------|--------------|")
+            for s in grid[:40]:
+                t = f"{s['time']:.1f}" if s.get("time") is not None else "-"
+                mark = " (chroma)" if s.get("source") == "btc+chroma" else ""
+                shown = s["chord"]
+                alts = ", ".join(f"{c['chord']} {c['p']:.2f}" for c in s.get("candidates", [])
+                                 if c["chord"] != shown) if s.get("confidence", 1) < 0.8 else ""
+                L.append(f"| {t} | **{s.get('chord_full') or s['chord']}**{mark} | {s['beats']} "
+                         f"| {s['confidence']:.2f} | {alts} |")
         else:
             L.append("| Temps (s) | Accord | Beats |")
             L.append("|-----------|--------|-------|")
@@ -57,6 +69,9 @@ def render_markdown(r: dict) -> str:
         chain_key = "chord_full" if rich else "chord"
         L.append(f"\n**Enchaînement :** "
                  f"{' → '.join((s.get(chain_key) or s['chord']) for s in grid[:16])}\n")
+        if any(s.get("confidence", 1) < 0.8 for s in grid):
+            L.append("*Confiance < 0,80 : BTC hésite ; « (chroma) » = départagé parmi ses candidats "
+                     "par le chroma du mix harmonique. À vérifier à l'oreille en priorité.*\n")
         if src == "template":
             L.append("*Faible confiance / enchaînement instable = harmonie suspendue (ambient) — "
                      "à corriger à l'oreille.*\n")
