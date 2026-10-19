@@ -25,6 +25,7 @@ dependencies = [
 # Étapes lourdes (séparation de stems + transcription) — opt-in :
 #   pip install score7[melody]
 [project.optional-dependencies]
+plot = ["matplotlib>=3.6"]
 melody = [
     "demucs>=4.0",
     "piano_transcription_inference>=0.0.6",
@@ -46,6 +47,7 @@ test = ["pytest>=8.0"]
 
 [project.scripts]
 score7 = "score7_mcp.cli:main"
+score7-spectrum = "score7_mcp.spectrum:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

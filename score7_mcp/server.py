@@ -129,6 +129,25 @@ def separate_stems(file_path: str, out_dir: str | None = None,
         return {"error": str(e)}
 
 
+@mcp.tool
+def spectrum(file_paths: list[str], png: str | None = None, title: str | None = None) -> dict:
+    """Spectre d'un rendu d'instrument (piste seule) : énergie par bande (sub, grave, medium,
+    presence, air, en %), centroïde, rolloff85, peak/RMS, corrélation stéréo. Plusieurs
+    fichiers = comparaison de réglages. `png` écrit un spectrogramme du premier fichier et
+    les spectres moyens superposés (extra [plot] requis)."""
+    from score7_mcp import spectrum as spec
+    missing = [p for p in file_paths if not Path(p).expanduser().exists()]
+    if missing:
+        return {"error": f"Fichier(s) introuvable(s) : {', '.join(missing)}"}
+    try:
+        out = {"measures": [spec.measure(p) for p in file_paths]}
+        if png:
+            out["png"] = spec.plot(file_paths, png, title=title)
+    except (ValueError, ImportError) as e:
+        return {"error": str(e)}
+    return out
+
+
 def main():
     mcp.run()
 
